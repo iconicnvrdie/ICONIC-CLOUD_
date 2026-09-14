@@ -24,6 +24,17 @@ fmt_bw()  { awk -v n="$1" 'BEGIN{
 
 get() { awk -v key="xdpguard_$1" '$1==key && NF==2 {print $2; exit}' <<<"$DATA"; }
 
+banner() {
+  [ -f "$BANNER" ] || return 0
+  if [ -t 1 ]; then
+    printf '\033[38;5;208m'
+    cat "$BANNER"
+    printf '\033[0m'
+  else
+    cat "$BANNER"
+  fi
+}
+
 DATA="$(curl -fsS --max-time 5 "$METRICS_URL" 2>/dev/null || true)"
 
 STATE="$(systemctl is-active "$SVC" 2>/dev/null || echo unknown)"
@@ -48,9 +59,9 @@ if [ "${1:-}" = "--json" ]; then
 fi
 
 if [ "${1:-}" = "--motd" ]; then
-  [ -f "$BANNER" ] && cat "$BANNER"
+  banner
   case "$STATE" in
-    active)  printf "       \033[32m[ ACTIVE ]\033[0m  Shield is UP | %s blocked IPs | %s packets dropped\n" "$(fmt_num "$BLOCKED_ACT")" "$(fmt_num "$DROP_PKT")" ;;
+    active)  printf "       \033[38;5;208m[ ACTIVE ]\033[0m  Shield is UP | %s blocked IPs | %s packets dropped\n" "$(fmt_num "$BLOCKED_ACT")" "$(fmt_num "$DROP_PKT")" ;;
     *)       printf "       \033[31m[ DOWN ]\033[0m  Filter is not running!\n" ;;
   esac
   exit 0
@@ -63,7 +74,7 @@ else
   B="";C="";D="";R="";Y="";GRN="";RED="";ACT="ACTIVE";IN="DOWN"
 fi
 
-[ -f "$BANNER" ] && cat "$BANNER"
+banner
 PUB_IP="$(curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null || true)"
 [ -n "$PUB_IP" ] || PUB_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 echo -e "${D}----------------------------------------------------------------------${R}"
