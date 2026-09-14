@@ -29,6 +29,17 @@ log()  { printf '\033[1;32m[qwen]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[qwen]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[qwen]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
 
+banner() {
+  [ -f "$ROOT/etc/matrix-shield/banner.txt" ] || return 0
+  if [ -t 1 ]; then
+    printf '\033[38;5;208m'
+    cat "$ROOT/etc/matrix-shield/banner.txt"
+    printf '\033[0m'
+  else
+    cat "$ROOT/etc/matrix-shield/banner.txt"
+  fi
+}
+
 if [ "$(id -u)" -ne 0 ]; then
   if command -v sudo >/dev/null 2>&1; then
     warn "Not root — re-executing with sudo ..."
@@ -227,16 +238,18 @@ systemctl restart matrix-shield-dashboard.service || true
 sleep 2
 systemctl --no-pager --full status "$BIN_NAME.service" || true
 
-if command -v ufw >/dev/null 2>&1; then
-  ufw allow 9090/tcp >/dev/null 2>&1 \
-    && log "ufw: allowed 9090/tcp (dashboard)" \
-    || warn "ufw: could not allow 9090/tcp (open dashboard port manually)"
+if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
+  if ufw allow 9090/tcp >/dev/null 2>&1; then
+    log "ufw: allowed 9090/tcp (dashboard)"
+  else
+    log "ufw present but 9090 not opened - run 'ufw allow 9090/tcp' if needed"
+  fi
 fi
 
 LOCAL_IP="$(curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null || true)"
 [ -n "$LOCAL_IP" ] || LOCAL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
-[ -f "$ROOT/etc/matrix-shield/banner.txt" ] && cat "$ROOT/etc/matrix-shield/banner.txt"
+[ -f "$ROOT/etc/matrix-shield/banner.txt" ] && banner
 log "=== DONE — MATRIX SHIELD ACTIVE ==="
 log "Filter : systemctl status $BIN_NAME.service"
 log "CLI    : matrix-shield        (live status, run as root)"
