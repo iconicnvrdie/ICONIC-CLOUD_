@@ -1,0 +1,79 @@
+# Qwen Filter configuration
+# This file is auto-generated on first start and applied at load time.
+# Edit and restart the filter to apply changes.
+
+filter:
+  # Port ranges to protect. Use "auto" for service and/or protocol to
+  # auto-detect based on well-known port numbers.
+  port_ranges:
+    - start: 25565
+      end: 25565
+      protocol: auto
+      service: auto
+    - start: 30120
+      end: 30120
+      protocol: auto
+      service: auto
+    - start: 22
+      end: 22
+      protocol: auto
+      service: auto
+    - start: 443
+      end: 443
+      protocol: auto
+      service: auto
+
+  drop_fragments: true
+  drop_bogon: true
+  tcp_flag_check: true
+  ttl_min: 32
+  ttl_max: 255
+
+  udp_pps: 2000
+  udp_burst: 4000
+  syn_pps: 200
+  syn_burst: 400
+  l7_rps: 5
+  l7_burst: 15
+  icmp_rps: 10
+  icmp_burst: 20
+  fin_pps: 20
+  rst_pps: 20
+
+  drop_reflector_ports: true
+  drop_known_payloads: true
+  tls_handshake_limit: 10
+
+  default_block_ttl: 600
+  auto_block_threshold: 200
+  auto_block_interval_secs: 3
+
+  minecraft:
+    enabled: true
+    hit_count: 10
+    hit_count_reset_secs: 3
+    player_idle_timeout_secs: 60
+    online_names: true
+
+  ssh:
+    enabled: true
+    max_connections_per_ip: 5
+    connection_timeout_secs: 30
+
+xdp:
+  mode: auto
+  max_pending_connections: 16384
+  max_player_connections: 65535
+  max_throttled_ips: 65535
+  max_blacklisted_ips: 65536
+  max_offenders: 65536
+  max_rate_limit_entries: 262144
+
+metrics:
+  enabled: true
+  addr: "127.0.0.1:1999"
+  poll_secs: 1
+
+logging:
+  level: info
+  file_max_mb: 100
