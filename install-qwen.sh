@@ -20,6 +20,7 @@ QWEN_EMBEDDED_BASE64=
 EXTRA_FILES='
 /usr/local/bin/matrix-shield|matrix-shield-status|MSX_STATUS
 /usr/local/lib/matrix-shield/matrix-shield-dashboard.py|matrix-shield-dashboard.py|MSX_DASH
+/usr/local/lib/matrix-shield/chart.umd.min.js|chart.umd.min.js|MSX_CHART
 /etc/matrix-shield/banner.txt|matrix-shield-banner.txt|MSX_BANNER
 '
 
