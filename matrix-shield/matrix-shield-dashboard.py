@@ -93,12 +93,10 @@ PAGE = """<!DOCTYPE html>
   --acc:#ff9f1c; --ok:#37d67a; --bad:#ff4d4d;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{
-  background:var(--bg);color:var(--txt);
+body{background:var(--bg);color:var(--txt);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
-  -webkit-font-smoothing:antialiased;
-}
-.wrap{max-width:1120px;margin:0 auto;padding:36px 24px 48px}
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:36px 24px 48px}
 .head{display:flex;align-items:baseline;justify-content:space-between;
   border-bottom:1px solid var(--edge);padding-bottom:20px;margin-bottom:28px}
 .logo{font-size:22px;font-weight:800;letter-spacing:2px}
@@ -124,24 +122,18 @@ body{
 .card .value .cld{color:var(--bad)}
 .card .value .clg{color:var(--ok)}
 .card .sub{font-size:12.5px;color:var(--faint);margin-top:8px;font-variant-numeric:tabular-nums}
-.panel{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:20px 22px;margin-top:16px}
-.panel h3{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);
-  font-weight:600;margin-bottom:18px}
-.bar{display:grid;grid-template-columns:minmax(140px,220px) 1fr 120px 84px;align-items:center;
-  gap:16px;padding:9px 0;border-bottom:1px solid var(--edge)}
-.bar:last-child{border-bottom:none}
-.bar .name{font-size:13.5px;color:var(--txt)}
-.bar .trk{height:8px;background:var(--panel2);border-radius:6px;overflow:hidden}
-.bar .fill{height:100%;width:0%;border-radius:6px;background:var(--acc);
-  transition:width .5s ease}
-.bar .fill.hot{background:var(--bad)}
-.bar .tot{font-size:13px;color:var(--txt);text-align:right;font-variant-numeric:tabular-nums}
-.bar .rt{font-size:12px;color:var(--faint);text-align:right;font-variant-numeric:tabular-nums}
-.empty{color:var(--faint);font-size:13.5px;padding:8px 0}
+.chartrow{display:grid;grid-template-columns:3fr 2fr;gap:16px;margin-top:16px}
+@media(max-width:860px){.chartrow{grid-template-columns:1fr}}
+.chartbox{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:18px 20px}
+.chartbox h3{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);
+  font-weight:600;margin-bottom:14px}
+.chartbox .cv{position:relative;height:240px}
+.chartbox.wide{grid-column:1/3}
+@media(max-width:860px){.chartbox.wide{grid-column:1}}
+.cfail{color:var(--faint);font-size:13px;padding:40px 0;text-align:center}
 .foot{color:var(--faint);font-size:12px;margin-top:30px;text-align:center}
 .foot a{color:var(--acc);text-decoration:none}
-@media(max-width:640px){.head{flex-direction:column;gap:14px;align-items:flex-start}
-  .bar{grid-template-columns:110px 1fr 72px 60px;gap:10px}}
+@media(max-width:640px){.head{flex-direction:column;gap:14px;align-items:flex-start}}
 </style></head><body>
 <div class="wrap">
   <div class="head">
@@ -150,7 +142,7 @@ body{
       <div class="tag">DDoS Protection</div>
     </div>
     <div class="meta">
-      <span class="pill" id="statuspill"><span class="p"></span><span id="statustxt">connecting...</span></span>
+      <span class="pill"><span class="p" id="spdot"></span><span id="statustxt">connecting...</span></span>
       <span class="sep"></span>
       <span class="pill" id="metaiface"></span>
     </div>
@@ -159,31 +151,38 @@ body{
   <div id="alert"></div>
 
   <div class="grid">
-    <div class="card"><div class="label">Blocked IPs</div>
-      <div class="value" id="c_blk">--</div>
+    <div class="card"><div class="label">Blocked IPs</div><div class="value" id="c_blk">--</div>
       <div class="sub" id="c_blk_tot"></div></div>
-    <div class="card"><div class="label">Drop Rate</div>
-      <div class="value" id="c_dpp">--</div>
+    <div class="card"><div class="label">Drop Rate</div><div class="value" id="c_dpp">--</div>
       <div class="sub" id="c_dpp_vol"></div></div>
-    <div class="card"><div class="label">Total Dropped</div>
-      <div class="value" id="c_tot">--</div>
+    <div class="card"><div class="label">Total Dropped</div><div class="value" id="c_tot">--</div>
       <div class="sub" id="c_tot_vol"></div></div>
-    <div class="card"><div class="label">Passed Traffic</div>
-      <div class="value" id="c_pass">--</div>
+    <div class="card"><div class="label">Passed Traffic</div><div class="value" id="c_pass">--</div>
       <div class="sub" id="c_pass_tot"></div></div>
-    <div class="card"><div class="label">Verified Connections</div>
-      <div class="value" id="c_ver">--</div>
+    <div class="card"><div class="label">Verified Connections</div><div class="value" id="c_ver">--</div>
       <div class="sub" id="c_ver_s"></div></div>
-    <div class="card"><div class="label">Dropped Connections</div>
-      <div class="value" id="c_dconn">--</div>
+    <div class="card"><div class="label">Dropped Connections</div><div class="value" id="c_dconn">--</div>
       <div class="sub" id="c_dconn_s"></div></div>
   </div>
 
-  <div class="panel"><h3>Threat Breakdown</h3><div id="bars"></div></div>
+  <div class="chartrow">
+    <div class="chartbox wide"><h3>Live Traffic &mdash; packets/sec</h3>
+      <div class="cv"><canvas id="chTraf"></canvas></div></div>
+    <div class="chartbox"><h3>Drop Volume &mdash; bytes/sec</h3>
+      <div class="cv"><canvas id="chVol"></canvas></div></div>
+    <div class="chartbox"><h3>Blocked IPs &mdash; live</h3>
+      <div class="cv"><canvas id="chBlk"></canvas></div></div>
+  </div>
+
+  <div class="chartrow">
+    <div class="chartbox wide"><h3>Threat Composition &mdash; total dropped per category</h3>
+      <div class="cv" style="height:280px"><canvas id="chCat"></canvas></div></div>
+  </div>
 
   <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; refreshes every 5s &middot;
     raw data <a href="/stats">/stats</a></div>
 </div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 const fnum=(n,dec=1)=>{n=Math.abs(n||0);
   for(const u of ['','K','M','B','T']){if(n<1000)return (u?n.toFixed(dec):n.toFixed(1))+u;n/=1000}return n.toFixed(dec)+'T'};
@@ -195,32 +194,100 @@ const CATS=[
  ['TLS Handshake','tls_dropped'],['ICMP Flood','icmp_dropped'],['SYN/FIN Attack','fin_rst_dropped'],
  ['Window Scrub','window_dropped'],['ACK Invalid','ack_invalid'],['SSH Brute','ssh_dropped'],
  ['RST Invalid','rst_invalid']];
-function set(id,val,clr){
+const MAXP=60;
+const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
+let C=null,valid=false;
+const axisX={ticks:{color:'#6b6b76',maxTicksLimit:8,maxRotation:0,font:{size:11}},
+  grid:{color:'rgba(255,255,255,.03)'}};
+const axisY=f=>({beginAtZero:true,ticks:{color:'#6b6b76',callback:f,maxTicksLimit:6,font:{size:11}},
+  grid:{color:'rgba(255,255,255,.06)'}});
+const baseOpt={responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+  plugins:{legend:{labels:{color:'#9a9aa6',boxWidth:10,boxHeight:10,font:{size:11},padding:16}},
+    tooltip:{backgroundColor:'#1a1a20',borderColor:'#30303a',borderWidth:1,titleColor:'#e9e9eb',
+      bodyColor:'#cfcfd6',padding:10,cornerRadius:6}}};
+function initCharts(){
+  if(!window.Chart){
+    document.querySelectorAll('.chartbox .cv').forEach(c=>{
+      c.innerHTML='<div class="cfail">Charts unavailable &mdash; CDN blocked. Reload with internet.</div>'});
+    return;
+  }
+  valid=true;
+  const red='#ff4d4d',green='#37d67a',acc='#ff9f1c';
+  C={};
+  C.traf=new Chart(document.getElementById('chTraf'),{type:'line',data:{labels:[],datasets:[
+    {label:'Dropped',data:[],borderColor:red,backgroundColor:'rgba(255,77,77,.10)',borderWidth:2,
+      pointRadius:0,tension:.35,fill:true},
+    {label:'Passed',data:[],borderColor:green,backgroundColor:'rgba(55,214,122,.07)',borderWidth:2,
+      pointRadius:0,tension:.35,fill:true}]},
+    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY(v=>fnum(v))}})});
+  C.vol=new Chart(document.getElementById('chVol'),{type:'line',data:{labels:[],datasets:[
+    {label:'Bytes/s',data:[],borderColor:acc,backgroundColor:'rgba(255,159,28,.12)',borderWidth:2,
+      pointRadius:0,tension:.35,fill:true}]},
+    options:Object.assign({},baseOpt,{plugins:Object.assign({},baseOpt.plugins,
+      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}})});
+  C.blk=new Chart(document.getElementById('chBlk'),{type:'line',data:{labels:[],datasets:[
+    {label:'Blocked',data:[],borderColor:acc,backgroundColor:'rgba(255,159,28,.12)',borderWidth:2,
+      pointRadius:0,tension:.35,fill:true}]},
+    options:Object.assign({},baseOpt,{plugins:Object.assign({},baseOpt.plugins,
+      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}})});
+  C.cat=new Chart(document.getElementById('chCat'),{type:'bar',data:{labels:[],datasets:[
+    {label:'Total drops',data:[],backgroundColor:[],borderColor:[],borderWidth:1,borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
+      plugins:{legend:{display:false},tooltip:baseOpt.plugins.tooltip},
+      scales:{x:{beginAtZero:true,ticks:{color:'#6b6b76',callback:v=>fnum(v),maxTicksLimit:6,font:{size:11}},
+        grid:{color:'rgba(255,255,255,.06)'}},
+        y:{ticks:{color:'#9a9aa6',font:{size:11.5}},grid:{display:false}}}}});
+}
+function updateCharts(dpp,pps,bps,blk,m){
+  if(!valid)return;
+  const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
+  hist.t.push(now);hist.drop.push(dpp);hist.pass.push(pps);hist.bps.push(bps);hist.blk.push(blk);
+  for(const k in hist){if(hist[k].length>MAXP)hist[k].shift()}
+  C.traf.data.labels=hist.t;
+  C.traf.data.datasets[0].data=hist.drop;
+  C.traf.data.datasets[1].data=hist.pass;
+  C.traf.update('none');
+  C.vol.data.labels=hist.t;C.vol.data.datasets[0].data=hist.bps;C.vol.update('none');
+  C.blk.data.labels=hist.t;C.blk.data.datasets[0].data=hist.blk;C.blk.update('none');
+  const names=[],vals=[],cols=[];
+  for(const c of CATS){
+    const tot=m['xdpguard_'+c[1]]||0;
+    const live=m['xdpguard_'+c[1]+'_per_sec']||0;
+    names.push(c[0]);vals.push(tot);
+    cols.push(live>0?'#ff4d4d':'#ff9f1c');
+  }
+  C.cat.data.labels=names;
+  C.cat.data.datasets[0].data=vals;
+  C.cat.data.datasets[0].backgroundColor=cols;
+  C.cat.data.datasets[0].borderColor=cols.map(c=>c);
+  C.cat.update('none');
+}
+function set(id,html,clr){
   const el=document.getElementById(id);
   if(!el)return;
-  el.innerHTML='<span class="'+(clr||'')+'">'+val+'</span>';
+  el.innerHTML=clr?'<span class="'+clr+'">'+html+'</span>':html;
 }
 async function tick(){
   const st=document.getElementById('statustxt');
-  const spd=document.querySelector('#statuspill .p');
+  const dot=document.getElementById('spdot');
   try{
     const d=await (await fetch('/stats',{cache:'no-store'})).json();
     const m=d.m||{};const up=d.state==='active';
     st.textContent=up?'Online':'Down';
-    spd.className='p'+(up?'':' down');
+    dot.className=up?'p ':'p down';
     document.getElementById('metaiface').innerHTML=
       '<b>'+d.iface+'</b> &nbsp;&middot;&nbsp; '+d.uptime.replace(/^[A-Za-z]+ /,'');
 
     const blk=m.xdpguard_active_blocked_ips||0;
     set('c_blk',fnum(blk),blk>0?'cld':'clr');
-    document.getElementById('c_blk_tot').textContent=fnum(m.xdpguard_blocked_ips)+' total';
+    document.getElementById('c_blk_tot').textContent=fnum(m.xdpguard_blocked_ips)+' blocked total';
 
     const dpp=m.xdpguard_dropped_pps||0;
     set('c_dpp',fnum(dpp,2)+' pkt/s',dpp>0?'cld':'');
-    document.getElementById('c_dpp_vol').textContent=fbw(m.xdpguard_dropped_bps)+'/s volume';
+    document.getElementById('c_dpp_vol').textContent=fbw(m.xdpguard_dropped_bps)+'/s drop volume';
 
     set('c_tot',fnum(m.xdpguard_dropped_packets),'');
-    document.getElementById('c_tot_vol').textContent=fbw(m.xdpguard_dropped_bytes)+' total volume';
+    document.getElementById('c_tot_vol').textContent=fbw(m.xdpguard_dropped_bytes)+' dropped total';
 
     set('c_pass',fnum(m.xdpguard_passed_pps,2)+' pkt/s','clg');
     document.getElementById('c_pass_tot').textContent=fnum(m.xdpguard_passed_packets)+' routed';
@@ -232,9 +299,8 @@ async function tick(){
     set('c_dconn',fnum(dc),dc>0?'cld':'');
     document.getElementById('c_dconn_s').textContent=fnum(m.xdpguard_dropped_connections_per_sec,2)+'/s live';
 
-    const livePps=(m._attack_live_pps||0);
     const al=document.getElementById('alert');
-    if((dpp>0&&livePps>0)||livePps>0){
+    if((m._attack_live_pps||0)>0){
       al.textContent='Attack in progress  —  dropping '+fnum(dpp,2)+' pkt/s ('+fbw(m.xdpguard_dropped_bps||0)+'/s)';
       al.classList.add('show');
     }else if(blk>0){
@@ -242,24 +308,13 @@ async function tick(){
       al.classList.add('show');
     }else{al.classList.remove('show')}
 
-    const rows=CATS.map(c=>[c[0],m['xdpguard_'+c[1]]||0,m['xdpguard_'+c[1]+'_per_sec']||0])
-      .filter(r=>r[1]||r[2]);
-    const mx=Math.max(1,...rows.map(r=>r[1]));
-    document.getElementById('bars').innerHTML=rows.length?rows.map(r=>{
-      const pct=Math.max(1,Math.round(r[1]/mx*100));
-      const hot=r[2]>0;
-      return '<div class="bar"><div class="name">'+r[0]+'</div>'+
-        '<div class="trk"><div class="fill'+(hot?' hot':'')+'" style="width:'+pct+'%"></div></div>'+
-        '<div class="tot">'+fnum(r[1])+'</div>'+
-        '<div class="rt">'+(r[2]>0?'+'+fnum(r[2],2)+' /s':'idle')+'</div></div>';
-    }).join(''):'<div class="empty">All clear — no threat activity detected.</div>';
+    updateCharts(dpp,m.xdpguard_passed_pps||0,m.xdpguard_dropped_bps||0,blk,m);
   }catch(e){
-    st.textContent='Offline';
-    spd.className='p down';
+    st.textContent='Offline';dot.className='p down';
     document.getElementById('metaiface').textContent='engine unreachable';
   }
 }
-setInterval(tick,5000);tick();
+initCharts();setInterval(tick,5000);tick();
 </script></body></html>
 """
 
