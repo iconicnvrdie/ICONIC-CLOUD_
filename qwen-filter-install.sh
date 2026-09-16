@@ -132,27 +132,27 @@ filter:
   udp_burst: 4000
   syn_pps: 200
   syn_burst: 400
-  l7_rps: 5
-  l7_burst: 15
+  l7_rps: 40
+  l7_burst: 120
   icmp_rps: 10
   icmp_burst: 20
   fin_pps: 20
   rst_pps: 20
   drop_reflector_ports: true
   drop_known_payloads: true
-  tls_handshake_limit: 10
-  default_block_ttl: 600
-  auto_block_threshold: 200
+  tls_handshake_limit: 50
+  default_block_ttl: 120
+  auto_block_threshold: 10000
   auto_block_interval_secs: 3
   minecraft:
     enabled: true
-    hit_count: 10
-    hit_count_reset_secs: 3
+    hit_count: 80
+    hit_count_reset_secs: 5
     player_idle_timeout_secs: 60
     online_names: true
   ssh:
     enabled: true
-    max_connections_per_ip: 5
+    max_connections_per_ip: 10
     connection_timeout_secs: 30
 xdp:
   mode: auto
