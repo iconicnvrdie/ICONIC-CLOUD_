@@ -223,6 +223,18 @@ let winCap=30;
 const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
 const peaks={dpp:0,bps:0,blk:0,pass:0};
 let lastM={};
+const tgt={drop:0,pass:0,bps:0,blk:0};
+const cur={drop:0,pass:0,bps:0,blk:0};
+
+function dispData(){
+  if(!hist.drop.length)return hist;
+  const o={t:hist.t,drop:hist.drop.slice(),pass:hist.pass.slice(),
+    bps:hist.bps.slice(),blk:hist.blk.slice()};
+  const n=o.drop.length;
+  o.drop[n-1]=cur.drop;o.pass[n-1]=cur.pass;
+  o.bps[n-1]=cur.bps;o.blk[n-1]=cur.blk;
+  return o;
+}
 
 function smoothData(arr){
   const n=arr.length,out=arr.slice();
@@ -284,23 +296,35 @@ function catSVG(el,cats){
   el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">'+s+'</svg>';
 }
 function renderAll(){
+  const d=dispData();
   chartSVG(document.getElementById('chTraf'),[
-    {data:hist.drop,color:P.red},
-    {data:hist.pass,color:P.pur}
+    {data:d.drop,color:P.red},
+    {data:d.pass,color:P.pur}
   ]);
-  chartSVG(document.getElementById('chVol'),[{data:hist.bps,color:P.pur}]);
-  chartSVG(document.getElementById('chBlk'),[{data:hist.blk,color:P.lil}]);
-  chartSVG(document.getElementById('s_blk'),[{data:hist.blk,color:P.lil}]);
-  chartSVG(document.getElementById('s_dpp'),[{data:hist.drop,color:P.red}]);
-  chartSVG(document.getElementById('s_pass'),[{data:hist.pass,color:P.pur}]);
+  chartSVG(document.getElementById('chVol'),[{data:d.bps,color:P.pur}]);
+  chartSVG(document.getElementById('chBlk'),[{data:d.blk,color:P.lil}]);
+  chartSVG(document.getElementById('s_blk'),[{data:d.blk,color:P.lil}]);
+  chartSVG(document.getElementById('s_dpp'),[{data:d.drop,color:P.red}]);
+  chartSVG(document.getElementById('s_pass'),[{data:d.pass,color:P.pur}]);
   const rows=CATS.map(c=>({name:c[0],tot:lastM['xdpguard_'+c[1]]||0,live:lastM['xdpguard_'+c[1]+'_per_sec']||0}));
   catSVG(document.getElementById('chCat'),rows);
+}
+function animLoop(){
+  let moving=false;
+  for(const k in tgt){
+    cur[k]+=(tgt[k]-cur[k])*0.30;
+    if(Math.abs(tgt[k]-cur[k])>0.05){moving=true;}
+    else cur[k]=tgt[k];
+  }
+  renderAll();
+  if(!moving&&hist.drop[hist.drop.length-1]===tgt.drop)return;
 }
 document.getElementById('win').addEventListener('click',e=>{
   const b=e.target.closest('button');
   if(!b)return;
   winCap=+b.dataset.m;
   document.querySelectorAll('#win button').forEach(x=>x.classList.toggle('on',x===b));
+  for(const k in tgt){cur[k]=tgt[k];}
   renderAll();
 });
 function set(id,html,clr){
@@ -375,13 +399,22 @@ async function tick(){
     hist.t.push(now);hist.drop.push(dpp);hist.pass.push(m.xdpguard_passed_pps||0);
     hist.bps.push(m.xdpguard_dropped_bps||0);hist.blk.push(blk);
     for(const k in hist){if(hist[k].length>winCap)hist[k].shift()}
-    renderAll();
+    tgt.drop=dpp;tgt.pass=m.xdpguard_passed_pps||0;
+    tgt.bps=m.xdpguard_dropped_bps||0;tgt.blk=blk;
+    if(hist.drop.length>1){
+      cur.drop=hist.drop[hist.drop.length-2];cur.pass=hist.pass[hist.pass.length-2];
+      cur.bps=hist.bps[hist.bps.length-2];cur.blk=hist.blk[hist.blk.length-2];
+    }else{
+      for(const k in tgt)cur[k]=tgt[k];
+    }
   }catch(e){
     st.textContent='Offline';dot.className='p down';
     document.getElementById('metaiface').textContent='engine unreachable';
   }
 }
-setInterval(tick,2000);tick();
+setInterval(tick,1000);tick();
+setInterval(animLoop,200);
+renderAll();
 </script></body></html>
 """
 
