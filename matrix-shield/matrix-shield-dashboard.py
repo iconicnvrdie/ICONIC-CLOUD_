@@ -93,13 +93,13 @@ PAGE = """<!DOCTYPE html>
 <title>Matrix Shield — Live DDoS Protection</title>
 <style>
 :root{
-  --bg:#0b0b0e; --panel:#121216; --edge:#23232b; --panel2:#17171c;
-  --txt:#e9e9eb; --dim:#9a9aa6; --faint:#6b6b76;
-  --acc:#ff9f1c; --ok:#37d67a; --bad:#ff4d4d;
+  --bg:#15151a; --panel:#1b1d23; --edge:#262a33; --panel2:#20232b;
+  --txt:#e5e5ea; --dim:#a9a9b3; --faint:#6f6f7a;
+  --acc:#ab46ef; --ok:#3ddc84; --bad:#ef4444; --hot:#ff5c7c;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  font-family:'Poppins','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
   -webkit-font-smoothing:antialiased}
 .wrap{max-width:1180px;margin:0 auto;padding:36px 24px 48px}
 .head{display:flex;align-items:baseline;justify-content:space-between;
@@ -126,6 +126,7 @@ body{background:var(--bg);color:var(--txt);
 .card .value .clr{color:var(--acc)}
 .card .value .cld{color:var(--bad)}
 .card .value .clg{color:var(--ok)}
+.card .value .clp{color:var(--acc)}
 .card .sub{font-size:12.5px;color:var(--faint);margin-top:8px;font-variant-numeric:tabular-nums}
 .card .spark{height:34px;margin-top:12px;position:relative}
 .card .spark canvas{width:100%;height:34px;display:block}
@@ -145,11 +146,10 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
 .win button{background:transparent;border:none;color:var(--faint);font-size:11px;font-weight:600;
   padding:5px 12px;cursor:pointer;letter-spacing:1px;font-family:inherit;transition:background .15s}
 .win button:hover{color:var(--txt)}
-.win button.on{background:var(--acc);color:#14100a}
+.win button.on{background:var(--acc);color:#fff}
 .livev{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.3px}
 .livev i{font-style:normal}
 .livev i.d{color:var(--bad)}
-.livev i.g{color:var(--ok)}
 .livev i.o{color:var(--acc)}
 .chartbox .cv{position:relative;height:200px}
 .chartbox.wide{grid-column:1/3}
@@ -228,7 +228,7 @@ const CATS=[
 let winCap=30;
 const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
 const peaks={dpp:0,bps:0,blk:0,pass:0};
-const COLOR={d:'#ff4d4d',g:'#37d67a',o:'#ff9f1c'};
+const COLOR={d:'#ff5c7c',p:'#ab46ef',o:'#c084fc'};
 document.getElementById('win').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
   winCap=+b.dataset.m;
@@ -257,17 +257,14 @@ function spark(cv,arr,color){
   c.globalAlpha=.13;c.fillStyle=color;c.fill();
 }
 let C=null,valid=false;
-const axisX={ticks:{color:'#6b6b76',maxTicksLimit:8,maxRotation:0,font:{size:11}},
-  grid:{color:'rgba(255,255,255,.03)'}};
-const axisY=f=>({beginAtZero:true,grace:'40%',
-  ticks:{color:'#6b6b76',callback:f,maxTicksLimit:6,font:{size:11}},
-  grid:{color:'rgba(255,255,255,.06)'}});
+const axisX={display:false};
+const axisY=()=>({display:false,grace:'40%'});
 const baseOpt={responsive:true,maintainAspectRatio:false,
   animation:{duration:1200,easing:'easeOutQuart'},
   interaction:{mode:'index',intersect:false},
-  plugins:{legend:{labels:{color:'#9a9aa6',boxWidth:10,boxHeight:10,font:{size:11},padding:16}},
-    tooltip:{backgroundColor:'#1a1a20',borderColor:'#30303a',borderWidth:1,titleColor:'#e9e9eb',
-      bodyColor:'#cfcfd6',padding:10,cornerRadius:6}}};
+  plugins:{legend:{display:false},
+    tooltip:{backgroundColor:'#23262e',borderColor:'#33384a',borderWidth:1,titleColor:'#f0f0f5',
+      bodyColor:'#cdcdd6',padding:10,cornerRadius:6}}};
 const liveEnd={
   id:'liveEnd',
   beforeDatasetsDraw(chart){
@@ -306,31 +303,27 @@ function initCharts(){
     return;
   }
   valid=true;
-  const red='#ff4d4d',green='#37d67a',acc='#ff9f1c';
+  const red='#ff5c7c',purple='#ab46ef',lila='#c084fc';
   C={};
   C.traf=new Chart(document.getElementById('chTraf'),{type:'line',data:{labels:[],datasets:[
-    {label:'Dropped',data:[],borderColor:red,backgroundColor:'rgba(255,77,77,.10)',borderWidth:2,
-      pointRadius:0,tension:.35,fill:true},
-    {label:'Passed',data:[],borderColor:green,backgroundColor:'rgba(55,214,122,.07)',borderWidth:2,
-      pointRadius:0,tension:.35,fill:true}]},
-    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY(v=>fnum(v))}}),plugins:[liveEnd]});
+    {label:'Dropped',data:[],borderColor:red,backgroundColor:'rgba(255,92,124,.10)',borderWidth:2,
+      pointRadius:0,tension:.4,fill:true},
+    {label:'Passed',data:[],borderColor:purple,backgroundColor:'rgba(171,70,239,.08)',borderWidth:2,
+      pointRadius:0,tension:.4,fill:true}]},
+    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY()}}),plugins:[liveEnd]});
   C.vol=new Chart(document.getElementById('chVol'),{type:'line',data:{labels:[],datasets:[
-    {label:'Bytes/s',data:[],borderColor:acc,backgroundColor:'rgba(255,159,28,.12)',borderWidth:2,
-      pointRadius:0,tension:.35,fill:true}]},
-    options:Object.assign({},baseOpt,{plugins:Object.assign({},baseOpt.plugins,
-      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}}),plugins:[liveEnd]});
+    {label:'Bytes/s',data:[],borderColor:purple,backgroundColor:'rgba(171,70,239,.12)',borderWidth:2,
+      pointRadius:0,tension:.4,fill:true}]},
+    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY()}}),plugins:[liveEnd]});
   C.blk=new Chart(document.getElementById('chBlk'),{type:'line',data:{labels:[],datasets:[
-    {label:'Blocked',data:[],borderColor:acc,backgroundColor:'rgba(255,159,28,.12)',borderWidth:2,
-      pointRadius:0,tension:.35,fill:true}]},
-    options:Object.assign({},baseOpt,{plugins:Object.assign({},baseOpt.plugins,
-      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}}),plugins:[liveEnd]});
+    {label:'Blocked',data:[],borderColor:lila,backgroundColor:'rgba(192,132,252,.12)',borderWidth:2,
+      pointRadius:0,tension:.4,fill:true}]},
+    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY()}}),plugins:[liveEnd]});
   C.cat=new Chart(document.getElementById('chCat'),{type:'bar',data:{labels:[],datasets:[
-    {label:'Total drops',data:[],backgroundColor:[],borderColor:[],borderWidth:1,borderRadius:4}]},
+    {label:'Total drops',data:[],backgroundColor:[],borderColor:[],borderWidth:1,borderRadius:3}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
       plugins:{legend:{display:false},tooltip:baseOpt.plugins.tooltip},
-      scales:{x:{beginAtZero:true,ticks:{color:'#6b6b76',callback:v=>fnum(v),maxTicksLimit:6,font:{size:11}},
-        grid:{color:'rgba(255,255,255,.06)'}},
-        y:{ticks:{color:'#9a9aa6',font:{size:11.5}},grid:{display:false}}}}});
+      scales:{x:{display:false},y:{display:false}}}});
 }
 function updateCharts(dpp,pps,bps,blk,m){
   if(!valid)return;
@@ -349,16 +342,16 @@ function updateCharts(dpp,pps,bps,blk,m){
       const tot=m['xdpguard_'+c[1]]||0;
       const live=m['xdpguard_'+c[1]+'_per_sec']||0;
       names.push(c[0]);vals.push(tot);
-      cols.push(live>0?'#ff4d4d':'#ff9f1c');
+      cols.push(live>0?'#ff5c7c':'#ab46ef');
     }
     C.cat.data.labels=names;
     C.cat.data.datasets[0].data=vals;
     C.cat.data.datasets[0].backgroundColor=cols;
     C.cat.data.datasets[0].borderColor=cols.map(c=>c);
     C.cat.update();
-    spark(document.getElementById('s_blk'),hist.blk,COLOR.o);
-    spark(document.getElementById('s_dpp'),hist.drop,COLOR.d);
-    spark(document.getElementById('s_pass'),hist.pass,COLOR.g);
+spark(document.getElementById('s_blk'),hist.blk,COLOR.o);
+  spark(document.getElementById('s_dpp'),hist.drop,COLOR.d);
+  spark(document.getElementById('s_pass'),hist.pass,COLOR.p);
   }catch(err){
     console.error('chart update failed:',err);
     document.getElementById('alert').textContent='Chart render error: '+err.message;
@@ -399,7 +392,7 @@ async function tick(){
     set('c_tot',fnum(m.xdpguard_dropped_packets),'');
     document.getElementById('c_tot_vol').textContent=fbw(m.xdpguard_dropped_bytes)+' dropped total';
 
-    set('c_pass',fnum(m.xdpguard_passed_pps,2)+' pkt/s','clg');
+    set('c_pass',fnum(m.xdpguard_passed_pps,2)+' pkt/s','clp');
     document.getElementById('c_pass_tot').textContent=
       fnum(m.xdpguard_passed_packets)+' routed &middot; peak '+fnum(peaks.pass)+' pkt/s';
 
@@ -427,7 +420,7 @@ async function tick(){
     }else{al.classList.remove('show')}
 
     document.getElementById('lv_traf').innerHTML=
-      '<i class="d">'+fnum(dpp,2)+'</i> vs <i class="g">'+
+      '<i class="d">'+fnum(dpp,2)+'</i> vs <i class="o">'+
       fnum(m.xdpguard_passed_pps||0,2)+'</i> pkt/s';
     document.getElementById('lv_vol').textContent=fbw(m.xdpguard_dropped_bps||0)+'/s';
     document.getElementById('lv_blk').innerHTML=blk>0?'<i class="d">'+fnum(blk)+'</i>':'<i class="o">0</i>';
