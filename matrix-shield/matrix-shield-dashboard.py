@@ -224,33 +224,44 @@ const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
 const peaks={dpp:0,bps:0,blk:0,pass:0};
 let lastM={};
 
-function smoothPath(pts){
+function smoothData(arr){
+  const n=arr.length,out=arr.slice();
+  for(let i=1;i<n-1;i++)out[i]=(arr[i-1]+arr[i]+arr[i+1])/3;
+  return out;
+}
+function catmull(pts){
   if(pts.length<2)return '';
-  let d='M'+pts[0][0].toFixed(1)+' '+pts[0][1].toFixed(1);
+  let d='M'+pts[0][0].toFixed(1)+','+pts[0][1].toFixed(1);
   for(let i=0;i<pts.length-1;i++){
-    const mx=(pts[i][0]+pts[i+1][0])/2, my=(pts[i][1]+pts[i+1][1])/2;
-    d+=' Q'+pts[i][0].toFixed(1)+' '+pts[i][1].toFixed(1)+' '+mx.toFixed(1)+' '+my.toFixed(1);
+    const p0=pts[Math.max(0,i-1)],p1=pts[i],p2=pts[i+1],p3=pts[Math.min(pts.length-1,i+2)];
+    const c1x=p1[0]+(p2[0]-p0[0])/6, c1y=p1[1]+(p2[1]-p0[1])/6;
+    const c2x=p2[0]-(p3[0]-p1[0])/6, c2y=p2[1]-(p3[1]-p1[1])/6;
+    d+=' C'+c1x.toFixed(1)+','+c1y.toFixed(1)+' '+c2x.toFixed(1)+','+c2y.toFixed(1)+' '+
+       p2[0].toFixed(1)+','+p2[1].toFixed(1);
   }
-  d+=' L'+pts[pts.length-1][0].toFixed(1)+' '+pts[pts.length-1][1].toFixed(1);
   return d;
 }
 function chartSVG(el,series){
   if(!el)return;
   const W=el.clientWidth||240,H=el.clientHeight||180,pad=6;
-  const all=series.map(s=>s.data).flat();
-  const max=Math.max(1,Math.max.apply(null,all))*1.15;
   let inner='';
   for(const s of series){
     if(s.data.length<2)continue;
-    const pts=s.data.map((v,i)=>[
-      pad+(i/(s.data.length-1))*(W-2*pad),
-      H-pad-((v||0)/max)*(H-2*pad)
+    const sm=smoothData(s.data);
+    const max=Math.max(1,Math.max.apply(null,sm))*1.2;
+    const pts=sm.map((v,i)=>[
+      pad+(i/(sm.length-1))*(W-2*pad),
+      H-pad-(v/max)*(H-2*pad)
     ]);
-    const line=smoothPath(pts);
+    const gid='g'+Math.random().toString(36).slice(2,8);
+    inner+='<defs><linearGradient id="'+gid+'" x1="0" y1="0" x2="0" y2="1">'+
+      '<stop offset="0" stop-color="'+s.color+'" stop-opacity=".30"/>'+
+      '<stop offset="1" stop-color="'+s.color+'" stop-opacity="0"/></linearGradient></defs>';
+    const line=catmull(pts);
     const lp=pts[pts.length-1];
-    inner+='<path d="'+line+' L'+lp[0].toFixed(1)+' '+H+' L'+pts[0][0].toFixed(1)+' '+H+' Z" fill="'+s.color+'" opacity=".10"/>';
-    inner+='<path d="'+line+'" fill="none" stroke="'+s.color+'" stroke-width="2"/>';
-    inner+='<circle cx="'+lp[0].toFixed(1)+'" cy="'+lp[1].toFixed(1)+'" r="5" fill="'+s.color+'" opacity=".18"/>';
+    inner+='<path d="'+line+' L'+lp[0].toFixed(1)+','+H+' L'+pts[0][0].toFixed(1)+','+H+' Z" fill="url(#'+gid+')"/>';
+    inner+='<path d="'+line+'" fill="none" stroke="'+s.color+'" stroke-width="2" stroke-linecap="round"/>';
+    inner+='<circle cx="'+lp[0].toFixed(1)+'" cy="'+lp[1].toFixed(1)+'" r="5" fill="'+s.color+'" opacity=".20"/>';
     inner+='<circle cx="'+lp[0].toFixed(1)+'" cy="'+lp[1].toFixed(1)+'" r="2.4" fill="'+s.color+'"/>';
   }
   el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">'+inner+'</svg>';
