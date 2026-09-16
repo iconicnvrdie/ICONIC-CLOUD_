@@ -151,6 +151,26 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
 .chartbox .cv.cat{height:auto;min-height:120px}
 .foot{color:var(--faint);font-size:12px;margin-top:30px;text-align:center}
 .foot a{color:var(--acc);text-decoration:none}
+.sect{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--faint);
+  font-weight:700;margin:22px 0 10px}
+.sect::after{content:'';display:block;height:1px;background:var(--edge);margin-top:6px}
+.scrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(205px,1fr));gap:14px}
+.scard{background:var(--panel);border:1px solid var(--edge);border-radius:6px;padding:12px 14px 10px}
+.sctop{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px}
+.sclab{font-size:10px;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint)}
+.scval{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--acc)}
+.scval.d{color:var(--bad)}
+.scgraph{height:44px}
+.scgraph svg{width:100%;height:100%;display:block}
+.tlist{background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:2px 16px}
+.trow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:10px 0;border-bottom:1px solid var(--edge);font-size:13.5px}
+.trow:last-child{border-bottom:none}
+.trow .n{color:var(--dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .v{color:var(--txt);font-variant-numeric:tabular-nums;margin-left:auto}
+.trow .r{color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums;width:76px;text-align:right}
+.trow.hot .v{color:var(--bad)}
+.trow.hot .n{color:var(--txt)}
 @media(max-width:640px){.head{flex-direction:column;gap:14px;align-items:flex-start}}
 </style></head><body>
 <div class="wrap">
@@ -186,25 +206,26 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
       <div class="sub" id="c_dconn_s"></div></div>
   </div>
 
-  <div class="chartrow">
-    <div class="chartbox wide"><div class="h"><h3>Live Traffic &mdash; packets/sec</h3>
-      <span class="win" id="win"><button data-m="30" class="on">1m</button><button data-m="150">5m</button><button data-m="450">15m</button></span>
-      <span class="livev" id="lv_traf"></span></div>
-      <div class="cv" id="chTraf"></div></div>
-    <div class="chartbox"><div class="h"><h3>Drop Volume &mdash; bytes/sec</h3>
-      <span class="livev" id="lv_vol"></span></div>
-      <div class="cv" id="chVol"></div></div>
-    <div class="chartbox"><div class="h"><h3>Blocked IPs &mdash; live</h3>
-      <span class="livev" id="lv_blk"></span></div>
-      <div class="cv" id="chBlk"></div></div>
+  <div class="sect">Live Metrics</div>
+  <div class="scrow">
+    <div class="scard"><div class="sctop"><span class="sclab">Dropped</span>
+      <span class="scval" id="gv_drop">0.0</span></div>
+      <div class="scgraph" id="g_drop"></div></div>
+    <div class="scard"><div class="sctop"><span class="sclab">Passed</span>
+      <span class="scval" id="gv_pass">0.0</span></div>
+      <div class="scgraph" id="g_pass"></div></div>
+    <div class="scard"><div class="sctop"><span class="sclab">Drop Volume</span>
+      <span class="scval" id="gv_vol">0 B/s</span></div>
+      <div class="scgraph" id="g_vol"></div></div>
+    <div class="scard"><div class="sctop"><span class="sclab">Blocked IPs</span>
+      <span class="scval" id="gv_blk">0</span></div>
+      <div class="scgraph" id="g_blk"></div></div>
   </div>
 
-  <div class="chartrow">
-    <div class="chartbox wide"><div class="h"><h3>Threat Composition &mdash; total dropped</h3></div>
-      <div class="cv cat" id="chCat"></div></div>
-  </div>
+  <div class="sect">Threats</div>
+  <div class="tlist" id="chCat"></div>
 
-  <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; live 2s refresh &middot;
+  <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; live 1s refresh &middot;
     raw data <a href="/stats">/stats</a></div>
 </div>
 <script>
@@ -219,7 +240,7 @@ const CATS=[
  ['Window Scrub','window_dropped'],['ACK Invalid','ack_invalid'],['SSH Brute','ssh_dropped'],
  ['RST Invalid','rst_invalid']];
 const P={red:'#ff5c7c',pur:'#ab46ef',lil:'#c084fc'};
-let winCap=30;
+let winCap=60;
 const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
 const peaks={dpp:0,bps:0,blk:0,pass:0};
 let lastM={};
@@ -278,36 +299,26 @@ function chartSVG(el,series){
   }
   el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">'+inner+'</svg>';
 }
-function catSVG(el,cats){
+function threatTable(el,cats){
   if(!el)return;
-  const W=el.clientWidth||560;
-  const RH=26,H=cats.length*RH+14;
-  const max=Math.max(1,Math.max.apply(null,cats.map(c=>c.tot)));
-  const bx=190,bwMax=W-190-200;
-  let s='';
-  cats.forEach((c,i)=>{
-    const y=9+i*RH;
-    const bw=Math.max(0,Math.round(bwMax*(c.tot/max)));
-    s+='<text x="0" y="'+(y+13)+'" font-size="12.5" fill="#e5e5ea">'+c.name+'</text>';
-    s+='<rect x="'+bx+'" y="'+y+'" height="14" width="'+bw+'" rx="3" fill="'+(c.live?'#ff5c7c':'#ab46ef')+'"/>';
-    s+='<text x="'+(W-130)+'" y="'+(y+13)+'" font-size="12" fill="#c9c9d4" text-anchor="end">'+fnum(c.tot)+'</text>';
-    s+='<text x="'+(W-20)+'" y="'+(y+13)+'" font-size="11" fill="#6f6f7a" text-anchor="end">'+(c.live?'+'+fnum(c.live,2)+'/s':'idle')+'</text>';
-  });
-  el.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="'+W+'" height="'+H+'">'+s+'</svg>';
+  const rows=cats.filter(c=>c.tot||c.live);
+  el.innerHTML=rows.length?rows.map(c=>
+    '<div class="trow'+(c.live?' hot':'')+'"><span class="n">'+c.name+'</span>'+
+    '<span class="v">'+fnum(c.tot)+'</span>'+
+    '<span class="r">'+(c.live?'+'+fnum(c.live,2)+'/s':'idle')+'</span></div>'
+  ).join(''):'<div class="trow"><span class="n">All clear</span><span class="v">—</span><span class="r">idle</span></div>';
 }
 function renderAll(){
   const d=dispData();
-  chartSVG(document.getElementById('chTraf'),[
-    {data:d.drop,color:P.red},
-    {data:d.pass,color:P.pur}
-  ]);
-  chartSVG(document.getElementById('chVol'),[{data:d.bps,color:P.pur}]);
-  chartSVG(document.getElementById('chBlk'),[{data:d.blk,color:P.lil}]);
+  chartSVG(document.getElementById('g_drop'),[{data:d.drop,color:P.red}]);
+  chartSVG(document.getElementById('g_pass'),[{data:d.pass,color:P.pur}]);
+  chartSVG(document.getElementById('g_vol'),[{data:d.bps,color:P.pur}]);
+  chartSVG(document.getElementById('g_blk'),[{data:d.blk,color:P.lil}]);
   chartSVG(document.getElementById('s_blk'),[{data:d.blk,color:P.lil}]);
   chartSVG(document.getElementById('s_dpp'),[{data:d.drop,color:P.red}]);
   chartSVG(document.getElementById('s_pass'),[{data:d.pass,color:P.pur}]);
   const rows=CATS.map(c=>({name:c[0],tot:lastM['xdpguard_'+c[1]]||0,live:lastM['xdpguard_'+c[1]+'_per_sec']||0}));
-  catSVG(document.getElementById('chCat'),rows);
+  threatTable(document.getElementById('chCat'),rows);
 }
 function animLoop(){
   let moving=false;
@@ -317,16 +328,7 @@ function animLoop(){
     else cur[k]=tgt[k];
   }
   renderAll();
-  if(!moving&&hist.drop[hist.drop.length-1]===tgt.drop)return;
 }
-document.getElementById('win').addEventListener('click',e=>{
-  const b=e.target.closest('button');
-  if(!b)return;
-  winCap=+b.dataset.m;
-  document.querySelectorAll('#win button').forEach(x=>x.classList.toggle('on',x===b));
-  for(const k in tgt){cur[k]=tgt[k];}
-  renderAll();
-});
 function set(id,html,clr){
   const el=document.getElementById(id);
   if(!el)return;
@@ -389,11 +391,14 @@ async function tick(){
       al.classList.add('show');
     }else{al.classList.remove('show')}
 
-    document.getElementById('lv_traf').innerHTML=
-      '<i class="d">'+fnum(dpp,2)+'</i> vs <i class="o">'+
-      fnum(m.xdpguard_passed_pps||0,2)+'</i> pkt/s';
-    document.getElementById('lv_vol').textContent=fbw(m.xdpguard_dropped_bps||0)+'/s';
-    document.getElementById('lv_blk').innerHTML=blk>0?'<i class="d">'+fnum(blk)+'</i>':'<i class="o">0</i>';
+    const gd=document.getElementById('gv_drop');
+    gd.textContent=fnum(dpp,2);
+    gd.className='scval'+(dpp>0?' d':'');
+    document.getElementById('gv_pass').textContent=fnum(m.xdpguard_passed_pps||0,2);
+    document.getElementById('gv_vol').textContent=fbw(m.xdpguard_dropped_bps||0)+'/s';
+    const gb=document.getElementById('gv_blk');
+    gb.textContent=fnum(blk);
+    gb.className='scval'+(blk>0?' d':'');
 
     const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
     hist.t.push(now);hist.drop.push(dpp);hist.pass.push(m.xdpguard_passed_pps||0);
