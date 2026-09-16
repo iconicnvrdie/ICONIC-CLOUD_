@@ -14,6 +14,11 @@ BIND = os.environ.get("MS_BIND", "0.0.0.0")
 PORT = int(os.environ.get("MS_PORT", "9090"))
 METRICS_URL = os.environ.get("METRICS_URL", "http://127.0.0.1:1999/metrics")
 SVC = "qwen-filter.service"
+LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chart.umd.min.js")
+try:
+    CHART_JS = open(LIB, "rb").read()
+except Exception:
+    CHART_JS = None
 
 CATS = [
     ("syn", "syn_rate_dropped", "SYN Flood"),
@@ -129,6 +134,11 @@ body{background:var(--bg);color:var(--txt);
 .chartbox{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:18px 20px}
 .chartbox h3{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);
   font-weight:600;margin-bottom:0}
+.chartbox h3::before{content:'';display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:var(--ok);margin-right:8px;vertical-align:middle;
+  box-shadow:0 0 6px var(--ok);animation:pulse 1.6s infinite}
+body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--bad);animation:none}
+@keyframes pulse{50%{opacity:.3}}
 .chartbox .h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
 .win{display:inline-flex;border:1px solid var(--edge);border-radius:8px;overflow:hidden;
   background:var(--panel2)}
@@ -184,7 +194,7 @@ body{background:var(--bg);color:var(--txt);
 
   <div class="chartrow">
     <div class="chartbox wide"><div class="h"><h3>Live Traffic &mdash; packets/sec</h3>
-      <span class="win" id="win"><button data-m="30">1m</button><button data-m="150" class="on">5m</button><button data-m="450">15m</button></span>
+      <span class="win" id="win"><button data-m="30" class="on">1m</button><button data-m="150">5m</button><button data-m="450">15m</button></span>
       <span class="livev" id="lv_traf"></span></div>
       <div class="cv"><canvas id="chTraf"></canvas></div></div>
     <div class="chartbox"><div class="h"><h3>Drop Volume &mdash; bytes/sec</h3>
@@ -203,7 +213,7 @@ body{background:var(--bg);color:var(--txt);
   <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; live 2s refresh &middot;
     raw data <a href="/stats">/stats</a></div>
 </div>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/chart.js"></script>
 <script>
 const fnum=(n,dec=1)=>{n=Math.abs(n||0);
   for(const u of ['','K','M','B','T']){if(n<1000)return (u?n.toFixed(dec):n.toFixed(1))+u;n/=1000}return n.toFixed(dec)+'T'};
@@ -215,7 +225,7 @@ const CATS=[
  ['TLS Handshake','tls_dropped'],['ICMP Flood','icmp_dropped'],['SYN/FIN Attack','fin_rst_dropped'],
  ['Window Scrub','window_dropped'],['ACK Invalid','ack_invalid'],['SSH Brute','ssh_dropped'],
  ['RST Invalid','rst_invalid']];
-let winCap=150;
+let winCap=30;
 const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
 const peaks={dpp:0,bps:0,blk:0,pass:0};
 const COLOR={d:'#ff4d4d',g:'#37d67a',o:'#ff9f1c'};
@@ -249,7 +259,8 @@ function spark(cv,arr,color){
 let C=null,valid=false;
 const axisX={ticks:{color:'#6b6b76',maxTicksLimit:8,maxRotation:0,font:{size:11}},
   grid:{color:'rgba(255,255,255,.03)'}};
-const axisY=f=>({beginAtZero:true,ticks:{color:'#6b6b76',callback:f,maxTicksLimit:6,font:{size:11}},
+const axisY=f=>({beginAtZero:true,grace:'40%',
+  ticks:{color:'#6b6b76',callback:f,maxTicksLimit:6,font:{size:11}},
   grid:{color:'rgba(255,255,255,.06)'}});
 const baseOpt={responsive:true,maintainAspectRatio:false,
   animation:{duration:1200,easing:'easeOutQuart'},
@@ -323,31 +334,36 @@ function initCharts(){
 }
 function updateCharts(dpp,pps,bps,blk,m){
   if(!valid)return;
-  const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
-  hist.t.push(now);hist.drop.push(dpp);hist.pass.push(pps);hist.bps.push(bps);hist.blk.push(blk);
-  for(const k in hist){if(hist[k].length>winCap)hist[k].shift()}
-  C.traf.data.labels=hist.t;
-  C.traf.data.datasets[0].data=hist.drop;
-  C.traf.data.datasets[1].data=hist.pass;
-  C.traf.update();
-  C.vol.data.labels=hist.t;C.vol.data.datasets[0].data=hist.bps;C.vol.update();
-  C.blk.data.labels=hist.t;C.blk.data.datasets[0].data=hist.blk;C.blk.update();
-  const names=[],vals=[],cols=[];
-  for(const c of CATS){
-    const tot=m['xdpguard_'+c[1]]||0;
-    const live=m['xdpguard_'+c[1]+'_per_sec']||0;
-    names.push(c[0]);vals.push(tot);
-    cols.push(live>0?'#ff4d4d':'#ff9f1c');
+  try{
+    const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
+    hist.t.push(now);hist.drop.push(dpp);hist.pass.push(pps);hist.bps.push(bps);hist.blk.push(blk);
+    for(const k in hist){if(hist[k].length>winCap)hist[k].shift()}
+    C.traf.data.labels=hist.t;
+    C.traf.data.datasets[0].data=hist.drop;
+    C.traf.data.datasets[1].data=hist.pass;
+    C.traf.update();
+    C.vol.data.labels=hist.t;C.vol.data.datasets[0].data=hist.bps;C.vol.update();
+    C.blk.data.labels=hist.t;C.blk.data.datasets[0].data=hist.blk;C.blk.update();
+    const names=[],vals=[],cols=[];
+    for(const c of CATS){
+      const tot=m['xdpguard_'+c[1]]||0;
+      const live=m['xdpguard_'+c[1]+'_per_sec']||0;
+      names.push(c[0]);vals.push(tot);
+      cols.push(live>0?'#ff4d4d':'#ff9f1c');
+    }
+    C.cat.data.labels=names;
+    C.cat.data.datasets[0].data=vals;
+    C.cat.data.datasets[0].backgroundColor=cols;
+    C.cat.data.datasets[0].borderColor=cols.map(c=>c);
+    C.cat.update();
+    spark(document.getElementById('s_blk'),hist.blk,COLOR.o);
+    spark(document.getElementById('s_dpp'),hist.drop,COLOR.d);
+    spark(document.getElementById('s_pass'),hist.pass,COLOR.g);
+  }catch(err){
+    console.error('chart update failed:',err);
+    document.getElementById('alert').textContent='Chart render error: '+err.message;
+    document.getElementById('alert').classList.add('show');
   }
-  C.cat.data.labels=names;
-  C.cat.data.datasets[0].data=vals;
-  C.cat.data.datasets[0].backgroundColor=cols;
-  C.cat.data.datasets[0].borderColor=cols.map(c=>c);
-  C.cat.update();
-
-  spark(document.getElementById('s_blk'),hist.blk,COLOR.o);
-  spark(document.getElementById('s_dpp'),hist.drop,COLOR.d);
-  spark(document.getElementById('s_pass'),hist.pass,COLOR.g);
 }
 function set(id,html,clr){
   const el=document.getElementById(id);
@@ -360,6 +376,7 @@ async function tick(){
   try{
     const d=await (await fetch('/stats',{cache:'no-store'})).json();
     const m=d.m||{};const up=d.state==='active';
+    document.body.classList.toggle('down',!up);
     st.textContent=up?'Online':'Down';
     dot.className=up?'p ':'p down';
     document.getElementById('metaiface').innerHTML=
@@ -439,6 +456,18 @@ class H(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        if self.path.startswith("/chart.js"):
+            if CHART_JS:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(CHART_JS)))
+                self.end_headers()
+                self.wfile.write(CHART_JS)
+                return
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"chart library missing")
             return
         body = PAGE.encode()
         self.send_response(200)
