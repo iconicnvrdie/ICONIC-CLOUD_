@@ -126,8 +126,14 @@ body{background:var(--bg);color:var(--txt);
 @media(max-width:860px){.chartrow{grid-template-columns:1fr}}
 .chartbox{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:18px 20px}
 .chartbox h3{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);
-  font-weight:600;margin-bottom:14px}
-.chartbox .cv{position:relative;height:240px}
+  font-weight:600;margin-bottom:0}
+.chartbox .h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.livev{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.3px}
+.livev i{font-style:normal}
+.livev i.d{color:var(--bad)}
+.livev i.g{color:var(--ok)}
+.livev i.o{color:var(--acc)}
+.chartbox .cv{position:relative;height:200px}
 .chartbox.wide{grid-column:1/3}
 @media(max-width:860px){.chartbox.wide{grid-column:1}}
 .cfail{color:var(--faint);font-size:13px;padding:40px 0;text-align:center}
@@ -166,11 +172,14 @@ body{background:var(--bg);color:var(--txt);
   </div>
 
   <div class="chartrow">
-    <div class="chartbox wide"><h3>Live Traffic &mdash; packets/sec</h3>
+    <div class="chartbox wide"><div class="h"><h3>Live Traffic &mdash; packets/sec</h3>
+      <span class="livev" id="lv_traf"></span></div>
       <div class="cv"><canvas id="chTraf"></canvas></div></div>
-    <div class="chartbox"><h3>Drop Volume &mdash; bytes/sec</h3>
+    <div class="chartbox"><div class="h"><h3>Drop Volume &mdash; bytes/sec</h3>
+      <span class="livev" id="lv_vol"></span></div>
       <div class="cv"><canvas id="chVol"></canvas></div></div>
-    <div class="chartbox"><h3>Blocked IPs &mdash; live</h3>
+    <div class="chartbox"><div class="h"><h3>Blocked IPs &mdash; live</h3>
+      <span class="livev" id="lv_blk"></span></div>
       <div class="cv"><canvas id="chBlk"></canvas></div></div>
   </div>
 
@@ -179,7 +188,7 @@ body{background:var(--bg);color:var(--txt);
       <div class="cv" style="height:280px"><canvas id="chCat"></canvas></div></div>
   </div>
 
-  <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; refreshes every 5s &middot;
+  <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; live 2s refresh &middot;
     raw data <a href="/stats">/stats</a></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -201,10 +210,43 @@ const axisX={ticks:{color:'#6b6b76',maxTicksLimit:8,maxRotation:0,font:{size:11}
   grid:{color:'rgba(255,255,255,.03)'}};
 const axisY=f=>({beginAtZero:true,ticks:{color:'#6b6b76',callback:f,maxTicksLimit:6,font:{size:11}},
   grid:{color:'rgba(255,255,255,.06)'}});
-const baseOpt={responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},
+const baseOpt={responsive:true,maintainAspectRatio:false,
+  animation:{duration:1200,easing:'easeOutQuart'},
+  interaction:{mode:'index',intersect:false},
   plugins:{legend:{labels:{color:'#9a9aa6',boxWidth:10,boxHeight:10,font:{size:11},padding:16}},
     tooltip:{backgroundColor:'#1a1a20',borderColor:'#30303a',borderWidth:1,titleColor:'#e9e9eb',
       bodyColor:'#cfcfd6',padding:10,cornerRadius:6}}};
+const liveEnd={
+  id:'liveEnd',
+  beforeDatasetsDraw(chart){
+    const {ctx,chartArea}=chart;
+    const d=chart.getDatasetMeta(0).data;
+    if(!d||!d.length)return;
+    const x=d[d.length-1].x;
+    ctx.save();
+    const g=ctx.createLinearGradient(x-18,0,x,0);
+    g.addColorStop(0,'rgba(255,255,255,0)');
+    g.addColorStop(1,'rgba(255,255,255,.06)');
+    ctx.fillStyle=g;
+    ctx.fillRect(x-18,chartArea.top,18,chartArea.bottom-chartArea.top);
+    ctx.restore();
+  },
+  afterDatasetsDraw(chart){
+    const {ctx}=chart;
+    const d=chart.getDatasetMeta(0).data;
+    if(!d||!d.length)return;
+    const pt=d[d.length-1];
+    const col=chart.data.datasets[0].borderColor;
+    ctx.save();
+    ctx.shadowColor=col;ctx.shadowBlur=8;
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(pt.x,pt.y,3,0,Math.PI*2);ctx.fill();
+    ctx.shadowBlur=0;
+    ctx.font='700 10px -apple-system,Segoe UI,Roboto,sans-serif';
+    ctx.fillText(fnum(pt.parsed.y),pt.x+6,pt.y-6);
+    ctx.restore();
+  }
+};
 function initCharts(){
   if(!window.Chart){
     document.querySelectorAll('.chartbox .cv').forEach(c=>{
@@ -219,17 +261,17 @@ function initCharts(){
       pointRadius:0,tension:.35,fill:true},
     {label:'Passed',data:[],borderColor:green,backgroundColor:'rgba(55,214,122,.07)',borderWidth:2,
       pointRadius:0,tension:.35,fill:true}]},
-    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY(v=>fnum(v))}})});
+    options:Object.assign({},baseOpt,{scales:{x:axisX,y:axisY(v=>fnum(v))}}),plugins:[liveEnd]});
   C.vol=new Chart(document.getElementById('chVol'),{type:'line',data:{labels:[],datasets:[
     {label:'Bytes/s',data:[],borderColor:acc,backgroundColor:'rgba(255,159,28,.12)',borderWidth:2,
       pointRadius:0,tension:.35,fill:true}]},
     options:Object.assign({},baseOpt,{plugins:Object.assign({},baseOpt.plugins,
-      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}})});
+      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}}),plugins:[liveEnd]});
   C.blk=new Chart(document.getElementById('chBlk'),{type:'line',data:{labels:[],datasets:[
     {label:'Blocked',data:[],borderColor:acc,backgroundColor:'rgba(255,159,28,.12)',borderWidth:2,
       pointRadius:0,tension:.35,fill:true}]},
     options:Object.assign({},baseOpt,{plugins:Object.assign({},baseOpt.plugins,
-      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}})});
+      {legend:{display:false}}),scales:{x:axisX,y:axisY(v=>fnum(v))}}),plugins:[liveEnd]});
   C.cat=new Chart(document.getElementById('chCat'),{type:'bar',data:{labels:[],datasets:[
     {label:'Total drops',data:[],backgroundColor:[],borderColor:[],borderWidth:1,borderRadius:4}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',
@@ -246,9 +288,9 @@ function updateCharts(dpp,pps,bps,blk,m){
   C.traf.data.labels=hist.t;
   C.traf.data.datasets[0].data=hist.drop;
   C.traf.data.datasets[1].data=hist.pass;
-  C.traf.update('none');
-  C.vol.data.labels=hist.t;C.vol.data.datasets[0].data=hist.bps;C.vol.update('none');
-  C.blk.data.labels=hist.t;C.blk.data.datasets[0].data=hist.blk;C.blk.update('none');
+  C.traf.update();
+  C.vol.data.labels=hist.t;C.vol.data.datasets[0].data=hist.bps;C.vol.update();
+  C.blk.data.labels=hist.t;C.blk.data.datasets[0].data=hist.blk;C.blk.update();
   const names=[],vals=[],cols=[];
   for(const c of CATS){
     const tot=m['xdpguard_'+c[1]]||0;
@@ -260,7 +302,7 @@ function updateCharts(dpp,pps,bps,blk,m){
   C.cat.data.datasets[0].data=vals;
   C.cat.data.datasets[0].backgroundColor=cols;
   C.cat.data.datasets[0].borderColor=cols.map(c=>c);
-  C.cat.update('none');
+  C.cat.update();
 }
 function set(id,html,clr){
   const el=document.getElementById(id);
@@ -308,13 +350,19 @@ async function tick(){
       al.classList.add('show');
     }else{al.classList.remove('show')}
 
+    document.getElementById('lv_traf').innerHTML=
+      '<i class="d">'+fnum(dpp,2)+'</i> vs <i class="g">'+
+      fnum(m.xdpguard_passed_pps||0,2)+'</i> pkt/s';
+    document.getElementById('lv_vol').textContent=fbw(m.xdpguard_dropped_bps||0)+'/s';
+    document.getElementById('lv_blk').innerHTML=blk>0?'<i class="d">'+fnum(blk)+'</i>':'<i class="o">0</i>';
+
     updateCharts(dpp,m.xdpguard_passed_pps||0,m.xdpguard_dropped_bps||0,blk,m);
   }catch(e){
     st.textContent='Offline';dot.className='p down';
     document.getElementById('metaiface').textContent='engine unreachable';
   }
 }
-initCharts();setInterval(tick,5000);tick();
+initCharts();setInterval(tick,2000);tick();
 </script></body></html>
 """
 
