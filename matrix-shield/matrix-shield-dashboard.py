@@ -122,12 +122,20 @@ body{background:var(--bg);color:var(--txt);
 .card .value .cld{color:var(--bad)}
 .card .value .clg{color:var(--ok)}
 .card .sub{font-size:12.5px;color:var(--faint);margin-top:8px;font-variant-numeric:tabular-nums}
+.card .spark{height:34px;margin-top:12px;position:relative}
+.card .spark canvas{width:100%;height:34px;display:block}
 .chartrow{display:grid;grid-template-columns:3fr 2fr;gap:16px;margin-top:16px}
 @media(max-width:860px){.chartrow{grid-template-columns:1fr}}
 .chartbox{background:var(--panel);border:1px solid var(--edge);border-radius:14px;padding:18px 20px}
 .chartbox h3{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--faint);
   font-weight:600;margin-bottom:0}
-.chartbox .h{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.chartbox .h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.win{display:inline-flex;border:1px solid var(--edge);border-radius:8px;overflow:hidden;
+  background:var(--panel2)}
+.win button{background:transparent;border:none;color:var(--faint);font-size:11px;font-weight:600;
+  padding:5px 12px;cursor:pointer;letter-spacing:1px;font-family:inherit;transition:background .15s}
+.win button:hover{color:var(--txt)}
+.win button.on{background:var(--acc);color:#14100a}
 .livev{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:.3px}
 .livev i{font-style:normal}
 .livev i.d{color:var(--bad)}
@@ -158,13 +166,16 @@ body{background:var(--bg);color:var(--txt);
 
   <div class="grid">
     <div class="card"><div class="label">Blocked IPs</div><div class="value" id="c_blk">--</div>
-      <div class="sub" id="c_blk_tot"></div></div>
+      <div class="sub" id="c_blk_tot"></div>
+      <div class="spark"><canvas id="s_blk"></canvas></div></div>
     <div class="card"><div class="label">Drop Rate</div><div class="value" id="c_dpp">--</div>
-      <div class="sub" id="c_dpp_vol"></div></div>
+      <div class="sub" id="c_dpp_vol"></div>
+      <div class="spark"><canvas id="s_dpp"></canvas></div></div>
     <div class="card"><div class="label">Total Dropped</div><div class="value" id="c_tot">--</div>
       <div class="sub" id="c_tot_vol"></div></div>
     <div class="card"><div class="label">Passed Traffic</div><div class="value" id="c_pass">--</div>
-      <div class="sub" id="c_pass_tot"></div></div>
+      <div class="sub" id="c_pass_tot"></div>
+      <div class="spark"><canvas id="s_pass"></canvas></div></div>
     <div class="card"><div class="label">Verified Connections</div><div class="value" id="c_ver">--</div>
       <div class="sub" id="c_ver_s"></div></div>
     <div class="card"><div class="label">Dropped Connections</div><div class="value" id="c_dconn">--</div>
@@ -173,6 +184,7 @@ body{background:var(--bg);color:var(--txt);
 
   <div class="chartrow">
     <div class="chartbox wide"><div class="h"><h3>Live Traffic &mdash; packets/sec</h3>
+      <span class="win" id="win"><button data-m="30">1m</button><button data-m="150" class="on">5m</button><button data-m="450">15m</button></span>
       <span class="livev" id="lv_traf"></span></div>
       <div class="cv"><canvas id="chTraf"></canvas></div></div>
     <div class="chartbox"><div class="h"><h3>Drop Volume &mdash; bytes/sec</h3>
@@ -203,8 +215,37 @@ const CATS=[
  ['TLS Handshake','tls_dropped'],['ICMP Flood','icmp_dropped'],['SYN/FIN Attack','fin_rst_dropped'],
  ['Window Scrub','window_dropped'],['ACK Invalid','ack_invalid'],['SSH Brute','ssh_dropped'],
  ['RST Invalid','rst_invalid']];
-const MAXP=60;
+let winCap=150;
 const hist={t:[],drop:[],pass:[],bps:[],blk:[]};
+const peaks={dpp:0,bps:0,blk:0,pass:0};
+const COLOR={d:'#ff4d4d',g:'#37d67a',o:'#ff9f1c'};
+document.getElementById('win').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  winCap=+b.dataset.m;
+  document.querySelectorAll('#win button').forEach(x=>x.classList.toggle('on',x===b));
+  for(const k in hist)if(hist[k].length>winCap)hist[k].splice(0,hist[k].length-winCap);
+  C.traf.update();C.vol.update();C.blk.update();
+});
+function spark(cv,arr,color){
+  if(!cv)return;
+  const dpr=window.devicePixelRatio||1;
+  const w=cv.width=Math.max(2,Math.floor(cv.clientWidth*dpr));
+  const h=cv.height=Math.max(2,Math.floor(cv.clientHeight*dpr));
+  const c=cv.getContext('2d');c.clearRect(0,0,w,h);
+  const n=arr.length;if(!n)return;
+  const max=Math.max(1,...arr.map(Math.abs));
+  c.beginPath();
+  for(let i=0;i<n;i++){
+    const x=(i/(n-1))*w;
+    const y=h-2-((arr[i]||0)/max)*(h-4);
+    i?c.lineTo(x,y):c.moveTo(x,y);
+  }
+  c.strokeStyle=color;c.lineWidth=1.8;
+  c.shadowColor=color;c.shadowBlur=4;
+  c.stroke();
+  c.lineTo(w,h);c.lineTo(0,h);c.closePath();
+  c.globalAlpha=.13;c.fillStyle=color;c.fill();
+}
 let C=null,valid=false;
 const axisX={ticks:{color:'#6b6b76',maxTicksLimit:8,maxRotation:0,font:{size:11}},
   grid:{color:'rgba(255,255,255,.03)'}};
@@ -284,7 +325,7 @@ function updateCharts(dpp,pps,bps,blk,m){
   if(!valid)return;
   const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
   hist.t.push(now);hist.drop.push(dpp);hist.pass.push(pps);hist.bps.push(bps);hist.blk.push(blk);
-  for(const k in hist){if(hist[k].length>MAXP)hist[k].shift()}
+  for(const k in hist){if(hist[k].length>winCap)hist[k].shift()}
   C.traf.data.labels=hist.t;
   C.traf.data.datasets[0].data=hist.drop;
   C.traf.data.datasets[1].data=hist.pass;
@@ -303,6 +344,10 @@ function updateCharts(dpp,pps,bps,blk,m){
   C.cat.data.datasets[0].backgroundColor=cols;
   C.cat.data.datasets[0].borderColor=cols.map(c=>c);
   C.cat.update();
+
+  spark(document.getElementById('s_blk'),hist.blk,COLOR.o);
+  spark(document.getElementById('s_dpp'),hist.drop,COLOR.d);
+  spark(document.getElementById('s_pass'),hist.pass,COLOR.g);
 }
 function set(id,html,clr){
   const el=document.getElementById(id);
@@ -321,18 +366,25 @@ async function tick(){
       '<b>'+d.iface+'</b> &nbsp;&middot;&nbsp; '+d.uptime.replace(/^[A-Za-z]+ /,'');
 
     const blk=m.xdpguard_active_blocked_ips||0;
+    peaks.blk=Math.max(peaks.blk,blk);
+    peaks.dpp=Math.max(peaks.dpp,m.xdpguard_dropped_pps||0);
+    peaks.bps=Math.max(peaks.bps,m.xdpguard_dropped_bps||0);
+    peaks.pass=Math.max(peaks.pass,m.xdpguard_passed_pps||0);
     set('c_blk',fnum(blk),blk>0?'cld':'clr');
-    document.getElementById('c_blk_tot').textContent=fnum(m.xdpguard_blocked_ips)+' blocked total';
+    document.getElementById('c_blk_tot').textContent=
+      fnum(m.xdpguard_blocked_ips)+' blocked total &middot; peak '+fnum(peaks.blk);
 
     const dpp=m.xdpguard_dropped_pps||0;
     set('c_dpp',fnum(dpp,2)+' pkt/s',dpp>0?'cld':'');
-    document.getElementById('c_dpp_vol').textContent=fbw(m.xdpguard_dropped_bps)+'/s drop volume';
+    document.getElementById('c_dpp_vol').textContent=
+      fbw(m.xdpguard_dropped_bps)+'/s &middot; peak '+fnum(peaks.dpp)+' pkt/s';
 
     set('c_tot',fnum(m.xdpguard_dropped_packets),'');
     document.getElementById('c_tot_vol').textContent=fbw(m.xdpguard_dropped_bytes)+' dropped total';
 
     set('c_pass',fnum(m.xdpguard_passed_pps,2)+' pkt/s','clg');
-    document.getElementById('c_pass_tot').textContent=fnum(m.xdpguard_passed_packets)+' routed';
+    document.getElementById('c_pass_tot').textContent=
+      fnum(m.xdpguard_passed_packets)+' routed &middot; peak '+fnum(peaks.pass)+' pkt/s';
 
     set('c_ver',fnum(m.xdpguard_verified_connections),'');
     document.getElementById('c_ver_s').textContent=fnum(m.xdpguard_verified_connections_per_sec,2)+'/s live';
@@ -342,8 +394,15 @@ async function tick(){
     document.getElementById('c_dconn_s').textContent=fnum(m.xdpguard_dropped_connections_per_sec,2)+'/s live';
 
     const al=document.getElementById('alert');
-    if((m._attack_live_pps||0)>0){
-      al.textContent='Attack in progress  —  dropping '+fnum(dpp,2)+' pkt/s ('+fbw(m.xdpguard_dropped_bps||0)+'/s)';
+    const livePps=(m._attack_live_pps||0);
+    if(livePps>0){
+      let dom=null;
+      for(const c of CATS){
+        const r=m['xdpguard_'+c[1]+'_per_sec']||0;
+        if(r>0&&(!dom||r>dom[1]))dom=[c[0],r];
+      }
+      const dTxt=dom?'  —  dominated by '+dom[0]:'';
+      al.textContent='Attack in progress'+dTxt+'  —  dropping '+fnum(dpp,2)+' pkt/s ('+fbw(m.xdpguard_dropped_bps||0)+'/s)';
       al.classList.add('show');
     }else if(blk>0){
       al.textContent=blk+' IP'+(blk>1?'s':'')+' blocked  —  auto release within 120s';
