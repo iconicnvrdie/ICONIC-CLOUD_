@@ -689,7 +689,7 @@ function nodeCard(n){
     html+='<div class="srvrow"><span>Total dropped</span><b>'+fnum(tot)+'</b></div>';
     html+='<div class="spark"><canvas id="sc_'+n.token+'"></canvas></div>';
   }
-  html+='<button class="rm" onclick="delNode(\''+n.token+'\')">&times;</button></div>';
+  html+='<button class="rm" onclick="delNode(\\\''+n.token+'\\\')">&times;</button></div>';
   return html;
 }
 async function tickNet(){
