@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Qwen Filter — XDP DDoS protection installer for Linux VPS (x86_64 + systemd)
+# MATRIX SHIELD — XDP DDoS protection installer (qwen-filter engine) for Linux VPS (x86_64 + systemd)
 #
 # Usage:
 #   sudo bash qwen-filter-install.sh [interface]
@@ -16,11 +16,30 @@ PREFIX="${QWEN_PREFIX:-}"
 QWEN_URL="${QWEN_URL:-}"
 QWEN_EMBEDDED_BASE64=
 
+# Bundled UI extras: <dest>|<source>|<embedded-var-name>
+EXTRA_FILES='
+/usr/local/bin/matrix-shield|matrix-shield-status|MSX_STATUS
+/usr/local/lib/matrix-shield/matrix-shield-dashboard.py|matrix-shield-dashboard.py|MSX_DASH
+/usr/local/lib/matrix-shield/chart.umd.min.js|chart.umd.min.js|MSX_CHART
+/etc/matrix-shield/banner.txt|matrix-shield-banner.txt|MSX_BANNER
+'
+
 IFACE="${1:-${QWEN_IFACE:-}}"
 
 log()  { printf '\033[1;32m[qwen]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[qwen]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m[qwen]\033[0m ERROR: %s\n' "$*" >&2; exit 1; }
+
+banner() {
+  [ -f "$ROOT/etc/matrix-shield/banner.txt" ] || return 0
+  if [ -t 1 ]; then
+    printf '\033[38;5;208m'
+    cat "$ROOT/etc/matrix-shield/banner.txt"
+    printf '\033[0m'
+  else
+    cat "$ROOT/etc/matrix-shield/banner.txt"
+  fi
+}
 
 if [ "$(id -u)" -ne 0 ]; then
   if command -v sudo >/dev/null 2>&1; then
@@ -31,7 +50,7 @@ if [ "$(id -u)" -ne 0 ]; then
   fi
 fi
 
-log "=== Qwen Filter installer ==="
+log "=== MATRIX SHIELD installer ==="
 
 case "$(uname -m)" in
   x86_64|amd64) log "Arch: x86_64 OK" ;;
@@ -73,6 +92,22 @@ mkdir -p "$INSTALL_DIR" "$CONF_DIR" "$UNIT_DIR"
 install -m 0755 "$BIN" "$INSTALL_DIR/$BIN_NAME"
 log "Installed $INSTALL_DIR/$BIN_NAME"
 
+log "Installing MATRIX SHIELD UI (dashboard, status CLI, login banner) ..."
+while IFS='|' read -r dest src var; do
+  [ -z "$dest" ] && continue
+  b64="${!var:-}"
+  [ -z "$b64" ] && continue
+  obj="$TMP/x-${src##*/}"
+  printf '%s' "$b64" | base64 -d > "$obj"
+  tgt="$ROOT$dest"
+  mkdir -p "$(dirname "$tgt")"
+  case "$dest" in
+    */matrix-shield) install -m 0755 "$obj" "$tgt" ;;
+    *) install -m 0644 "$obj" "$tgt" ;;
+  esac
+  log "Installed $tgt"
+done <<< "$EXTRA_FILES"
+
 CONF="$CONF_DIR/config.yaml"
 if [ -s "$CONF" ]; then
   warn "keeping existing config: $CONF"
@@ -95,27 +130,27 @@ filter:
   udp_burst: 4000
   syn_pps: 200
   syn_burst: 400
-  l7_rps: 5
-  l7_burst: 15
+  l7_rps: 40
+  l7_burst: 120
   icmp_rps: 10
   icmp_burst: 20
   fin_pps: 20
   rst_pps: 20
   drop_reflector_ports: true
   drop_known_payloads: true
-  tls_handshake_limit: 10
-  default_block_ttl: 600
-  auto_block_threshold: 200
+  tls_handshake_limit: 50
+  default_block_ttl: 120
+  auto_block_threshold: 10000
   auto_block_interval_secs: 3
   minecraft:
     enabled: true
-    hit_count: 10
-    hit_count_reset_secs: 3
+    hit_count: 80
+    hit_count_reset_secs: 5
     player_idle_timeout_secs: 60
     online_names: true
   ssh:
     enabled: true
-    max_connections_per_ip: 5
+    max_connections_per_ip: 10
     connection_timeout_secs: 30
 xdp:
   mode: auto
@@ -145,7 +180,7 @@ log "Interface: $IFACE"
 UNIT="$UNIT_DIR/$BIN_NAME.service"
 cat > "$UNIT" <<EOF
 [Unit]
-Description=Qwen Filter — XDP DDoS protection on $IFACE
+Description=Matrix Shield (qwen-filter) — XDP DDoS protection on $IFACE
 After=network-online.target
 Wants=network-online.target
 
@@ -161,20 +196,65 @@ WantedBy=multi-user.target
 EOF
 log "Wrote systemd unit: $UNIT"
 
+DASH_UNIT="$UNIT_DIR/matrix-shield-dashboard.service"
+cat > "$DASH_UNIT" <<EOF
+[Unit]
+Description=Matrix Shield Dashboard — live status web UI
+After=$BIN_NAME.service
+
+[Service]
+Type=simple
+Environment=METRICS_URL=http://127.0.0.1:1999/metrics
+ExecStart=/usr/bin/python3 /usr/local/lib/matrix-shield/matrix-shield-dashboard.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+log "Wrote systemd unit: $DASH_UNIT"
+
+PROFILE="$ROOT/etc/profile.d/matrix-shield.sh"
+mkdir -p "$(dirname "$PROFILE")"
+cat > "$PROFILE" <<'SH'
+# Matrix Shield — show branded banner once per SSH session
+if [ -t 0 ] && [ -z "${MATRIX_SHIELD_SHOWN:-}" ] && [ -x /usr/local/bin/matrix-shield ]; then
+  export MATRIX_SHIELD_SHOWN=1
+  /usr/local/bin/matrix-shield --motd
+fi
+SH
+log "Wrote SSH login banner: $PROFILE"
+
 if [ -n "$PREFIX" ]; then
   warn "Staging mode (QWEN_PREFIX=$PREFIX) — systemd not touched"
-  ls -l "$ROOT/usr/local/bin/$BIN_NAME"
+  ls -l "$ROOT/usr/local/bin/$BIN_NAME" "$ROOT/usr/local/bin/matrix-shield" 2>/dev/null
   exit 0
 fi
 
 systemctl daemon-reload
-systemctl enable "$BIN_NAME.service"
-systemctl restart "$BIN_NAME.service"
+systemctl enable "$BIN_NAME.service" >/dev/null 2>&1 || true
+systemctl enable matrix-shield-dashboard.service >/dev/null 2>&1 || true
+systemctl restart "$BIN_NAME.service" || true
+systemctl restart matrix-shield-dashboard.service || true
 sleep 2
 systemctl --no-pager --full status "$BIN_NAME.service" || true
 
-log "=== DONE ==="
-log "Status : systemctl status $BIN_NAME.service"
-log "Restart: systemctl restart $BIN_NAME.service"
+if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
+  if ufw allow 9090/tcp >/dev/null 2>&1; then
+    log "ufw: allowed 9090/tcp (dashboard)"
+  else
+    log "ufw present but 9090 not opened - run 'ufw allow 9090/tcp' if needed"
+  fi
+fi
+
+LOCAL_IP="$(curl -fsS --max-time 2 https://ifconfig.me 2>/dev/null || true)"
+[ -n "$LOCAL_IP" ] || LOCAL_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+
+[ -f "$ROOT/etc/matrix-shield/banner.txt" ] && banner
+log "=== DONE — MATRIX SHIELD ACTIVE ==="
+log "Filter : systemctl status $BIN_NAME.service"
+log "CLI    : matrix-shield        (live status, run as root)"
+log "Web    : http://${LOCAL_IP:-<vps-ip>}:9090   (live dashboard — MS_BIND=127.0.0.1 to lock to localhost)"
+log "Login  : every SSH login shows the MATRIX SHIELD banner"
 log "Logs   : journalctl -u $BIN_NAME.service -f"
 log "Config : $CONF_DIR/config.yaml"
