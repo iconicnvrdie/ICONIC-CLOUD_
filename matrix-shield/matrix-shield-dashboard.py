@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Matrix Shield — live DDoS protection dashboard (qwen-filter engine).
-Read-only status page. Env: MS_BIND (0.0.0.0), MS_PORT (9090),
-METRICS_URL (http://127.0.0.1:1999/metrics).
+"""Matrix Shield — central DDoS protection panel (qwen-filter engine).
+Green live dashboard for THIS VPS (own protection) + linked VPS nodes.
+A node links back by running an agent that reports to /report with a token
+issued by the "+" button. Env: MS_BIND (0.0.0.0), MS_PORT (9090),
+METRICS_URL (http://127.0.0.1:1999/metrics), MS_NODES_FILE, MS_INSTALL_FILE.
 """
 import json
 import os
 import socket
 import subprocess
+import time
 import urllib.parse
 import urllib.request
 import uuid
@@ -15,9 +18,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 BIND = os.environ.get("MS_BIND", "0.0.0.0")
 PORT = int(os.environ.get("MS_PORT", "9090"))
 METRICS_URL = os.environ.get("METRICS_URL", "http://127.0.0.1:1999/metrics")
-SERVERS_FILE = os.environ.get("MS_SERVERS_FILE", "/etc/matrix-shield/servers.json")
+NODES_FILE = os.environ.get("MS_NODES_FILE", "/etc/matrix-shield/nodes.json")
+INSTALL_FILE = os.environ.get("MS_INSTALL_FILE", "")
 SVC = "qwen-filter.service"
 LIB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chart.umd.min.js")
+NODE_OFFLINE = 15  # seconds without a report -> node shown offline
+
 try:
     CHART_JS = open(LIB, "rb").read()
 except Exception:
@@ -90,48 +96,100 @@ def status():
     return {"state": state, "uptime": uptime, "iface": iface, "m": m}
 
 
-def load_servers():
+def load_nodes():
     try:
-        with open(SERVERS_FILE) as f:
+        with open(NODES_FILE) as f:
             data = json.load(f)
-        return [s for s in data if isinstance(s, dict) and s.get("url")]
+        return data if isinstance(data, list) else []
     except Exception:
         return []
 
 
-def save_servers(srv):
+def save_nodes(nodes):
     try:
-        os.makedirs(os.path.dirname(SERVERS_FILE), exist_ok=True)
-        with open(SERVERS_FILE, "w") as f:
-            json.dump(srv, f, indent=2)
+        os.makedirs(os.path.dirname(NODES_FILE), exist_ok=True)
+        with open(NODES_FILE, "w") as f:
+            json.dump(nodes, f, indent=2)
     except Exception:
         pass
 
 
-def fetch_remote_stats(base):
-    url = base.rstrip("/") + "/stats"
-    try:
-        with urllib.request.urlopen(url, timeout=4) as r:
-            return json.loads(r.read().decode())
-    except Exception:
+def node_online(ts):
+    return bool(ts) and (time.time() - ts) <= NODE_OFFLINE
+
+
+def new_token():
+    return uuid.uuid4().hex[:16]
+
+
+def add_token_record(token):
+    nodes = load_nodes()
+    nodes.append({
+        "token": token,
+        "name": "",
+        "ip": "",
+        "added": time.time(),
+        "last_seen": 0,
+        "data": None,
+    })
+    save_nodes(nodes)
+
+
+def find_node(token):
+    for n in load_nodes():
+        if n.get("token") == token:
+            return n
+    return None
+
+
+def report_from_node(payload, client_ip):
+    token = (payload.get("token") or "").strip()
+    if not token:
         return None
+    nodes = load_nodes()
+    n = next((x for x in nodes if x.get("token") == token), None)
+    if n is None:
+        n = {
+            "token": token,
+            "name": "",
+            "ip": "",
+            "added": time.time(),
+            "last_seen": 0,
+            "data": None,
+        }
+        nodes.append(n)
+    n["name"] = (payload.get("name") or "").strip() or n.get("name", "")
+    n["ip"] = client_ip or n.get("ip", "")
+    n["last_seen"] = time.time()
+    m = payload.get("m") or {}
+    live = sum(float(m.get(k, 0)) for k in ATTACK_KEYS)
+    m["_attack_live_pps"] = live
+    n["data"] = {
+        "state": payload.get("state", "unknown"),
+        "uptime": payload.get("uptime", ""),
+        "iface": payload.get("iface", "auto"),
+        "m": m,
+    }
+    save_nodes(nodes)
+    return n
+
+
+def node_overview():
+    nodes = []
+    for n in load_nodes():
+        nodes.append({
+            "token": n.get("token", ""),
+            "name": n.get("name") or n.get("ip") or "pending",
+            "ip": n.get("ip", ""),
+            "online": node_online(n.get("last_seen")),
+            "last_seen": n.get("last_seen", 0),
+            "data": n.get("data"),
+        })
+    return nodes
 
 
 def net_status():
-    local = status()
-    servers = []
-    for s in load_servers():
-        data = fetch_remote_stats(s["url"])
-        servers.append({
-            "id": s.get("id", ""),
-            "name": s.get("name", s["url"]),
-            "url": s["url"],
-            "ok": data is not None,
-            "data": data,
-        })
-    now = __import__("time").time()
-    local["m"]["_last_update"] = now
-    return {"local": local, "servers": servers}
+    return {"local": status(), "nodes": node_overview()}
 
 
 PAGE = """<!DOCTYPE html>
@@ -207,9 +265,9 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
 .addform{display:inline-flex;gap:8px;flex-wrap:wrap}
 .addform input{background:var(--panel2);border:1px solid var(--edge);color:var(--txt);border-radius:7px;
   padding:7px 10px;font-size:12.5px;font-family:inherit;min-width:140px}
-.addform button{background:var(--acc);border:none;color:#14100a;font-weight:700;border-radius:7px;
-  padding:7px 14px;cursor:pointer;font-family:inherit;transition:opacity .15s}
-.addform button:hover{opacity:.85}
+.addbtn{background:var(--acc);border:none;color:#14100a;font-weight:700;border-radius:8px;
+  padding:7px 14px;cursor:pointer;font-family:inherit;transition:opacity .15s;font-size:12.5px}
+.addbtn:hover{opacity:.85}
 #srvgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
 .srvcard{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:14px 16px;
   position:relative}
@@ -218,6 +276,7 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
 .srvcard .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .srvcard .dot.ok{background:var(--ok);box-shadow:0 0 5px var(--ok)}
 .srvcard .dot.down{background:var(--bad);box-shadow:0 0 5px var(--bad)}
+.srvcard .dot.wait{background:#ffbf2e;box-shadow:0 0 5px #ffbf2e}
 .srvcard .smeta{color:var(--faint);font-size:11.5px;margin-bottom:8px}
 .srvrow{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;color:var(--dim)}
 .srvrow b{color:var(--txt);font-variant-numeric:tabular-nums}
@@ -227,6 +286,27 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
   color:var(--faint);border-radius:6px;cursor:pointer;font-size:13px;line-height:1;padding:3px 7px}
 .srvcard .rm:hover{color:var(--bad);border-color:var(--bad)}
 .errnote{color:var(--faint);font-size:12px;margin-top:4px}
+.modal{position:fixed;inset:0;background:rgba(10,10,14,.72);display:none;align-items:center;
+  justify-content:center;z-index:50;padding:20px}
+.modal.show{display:flex}
+.mcard{background:var(--panel);border:1px solid var(--edge);border-radius:16px;width:min(620px,100%);
+  box-shadow:0 20px 60px rgba(0,0,0,.5);overflow:hidden}
+.mhead{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;
+  border-bottom:1px solid var(--edge)}
+.mhead b{font-size:15px}
+.mclose{font-size:26px;color:var(--faint);cursor:pointer;line-height:1}
+.mclose:hover{color:var(--txt)}
+.mbody{padding:20px;display:flex;flex-direction:column;gap:10px}
+.mbody input{background:var(--panel2);border:1px solid var(--edge);color:var(--txt);border-radius:8px;
+  padding:10px 12px;font-size:13px;font-family:inherit}
+.cmdbox{position:relative;margin-top:2px}
+.cmdbox pre{background:#0d0d12;border:1px solid var(--edge);border-radius:10px;padding:14px 64px 14px 14px;
+  color:#bfe8cf;font:700 12px/1.5 ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap;
+  word-break:break-all;overflow-x:auto;margin:0}
+.cmdbox .cpy{position:absolute;top:10px;right:10px;background:var(--acc);border:none;color:#14100a;
+  font-weight:700;border-radius:7px;padding:6px 12px;cursor:pointer;font-family:inherit}
+.cmdbox .cpy:hover{opacity:.85}
+.cmdbox .cpy.copied{background:var(--ok)}
 @media(max-width:640px){.head{flex-direction:column;gap:14px;align-items:flex-start}}
 </style></head><body>
 <div class="wrap">
@@ -281,13 +361,27 @@ body.down .chartbox h3::before{background:var(--bad);box-shadow:0 0 6px var(--ba
   </div>
 
   <div class="chartrow">
-    <div class="chartbox wide"><div class="h"><h3>Servers &mdash; multi-VPS</h3>
-      <span class="addform">
-        <input id="sname" placeholder="Name (e.g. Delhi-1)">
-        <input id="surl" placeholder="http://IP:9090">
-        <button onclick="addServer()">Add</button>
-      </span></div>
+    <div class="chartbox wide"><div class="h"><h3>Linked VPS Nodes</h3>
+      <button class="addbtn" onclick="openAdd()">+ Add VPS</button></div>
       <div id="srvgrid"></div></div>
+  </div>
+
+  <div class="modal" id="addmodal">
+    <div class="mcard">
+      <div class="mhead"><b>Add VPS as Node</b>
+        <span class="mclose" onclick="closeAdd()">&times;</span></div>
+      <div class="mbody">
+        <input id="nname" placeholder="Node name (optional)">
+        <button class="addbtn" onclick="genCmd()">Generate command</button>
+        <div class="errnote" id="cmdpre" style="display:none;margin-top:12px"></div>
+        <div class="cmdbox" id="cmdbox" style="display:none">
+          <pre id="cmdtxt"></pre>
+          <button class="cpy" onclick="copyCmd()">Copy</button>
+        </div>
+        <p class="errnote">Run this command as root on the VPS you want to protect.
+        It installs full DDoS protection and auto-links the VPS to this panel as a node.</p>
+      </div>
+    </div>
   </div>
 
   <div class="foot">MATRIX SHIELD &middot; qwen-filter engine &middot; live 2s refresh &middot;
@@ -519,60 +613,97 @@ async function tick(){
   }
 }
 initCharts();setInterval(tick,2000);tick();
-/* ---- multi-VPS servers ---- */
+/* ---- linked VPS nodes ---- */
 const srvColors={};
 const srvHist={};
-async function addServer(){
-  const name=document.getElementById('sname').value.trim();
-  const url=document.getElementById('surl').value.trim();
-  if(!url)return;
-  await fetch('/servers',{method:'POST',
-    headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body:new URLSearchParams({name:name||url,url})});
-  document.getElementById('sname').value='';
-  document.getElementById('surl').value='';
+let pendingCmd=null;
+function openAdd(){document.getElementById('addmodal').classList.add('show');}
+function closeAdd(){document.getElementById('addmodal').classList.remove('show');}
+async function genCmd(){
+  const b=document.querySelector('#addmodal .addbtn');
+  b.disabled=true;b.textContent='Generating...';
+  pendingCmd=null;
+  document.getElementById('cmdbox').style.display='none';
+  document.getElementById('cmdpre').style.display='none';
+  try{
+    const r=await fetch('/joinadd',{method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({name:document.getElementById('nname').value.trim()||''})});
+    const d=await r.json();
+    if(!d.cmd)throw new Error(d.error||'failed');
+    pendingCmd=d.cmd;
+    document.getElementById('cmdtxt').textContent=d.cmd;
+    const pr=document.getElementById('cmdpre');
+    pr.style.display='block';
+    pr.textContent=d.extra||'';
+    document.getElementById('cmdbox').style.display='block';
+    if(d.pendingToken){srvHist['tok_'+d.pendingToken]={t:[],d:[],p:[]};}
+  }catch(e){
+    document.getElementById('cmdpre').style.display='block';
+    document.getElementById('cmdpre').textContent='Error: '+e.message;
+  }
+  b.disabled=false;b.textContent='Generate command';
+}
+async function copyCmd(){
+  if(!pendingCmd)return;
+  try{await navigator.clipboard.writeText(pendingCmd);}
+  catch(e){const ta=document.createElement('textarea');ta.value=pendingCmd;document.body.appendChild(ta);
+    ta.select();document.execCommand('copy');ta.remove();}
+  const c=document.querySelector('.cmdbox .cpy');
+  c.textContent='Copied';c.classList.add('copied');
+  setTimeout(()=>{c.textContent='Copy';c.classList.remove('copied');},1500);
+}
+async function delNode(token){
+  await fetch('/nodedelete?token='+encodeURIComponent(token),{method:'DELETE'});
   tickNet();
 }
-async function delServer(id){
-  await fetch('/servers?id='+encodeURIComponent(id),{method:'DELETE'});
-  tickNet();
+function nodeCard(n){
+  const id='tok_'+n.token;
+  if(!srvHist[id])srvHist[id]={t:[],d:[],p:[]};
+  const data=n.data||{};
+  const m=data.m||{};
+  const blk=m.xdpguard_active_blocked_ips||0;
+  const dpp=m.xdpguard_dropped_pps||0;
+  const pps=m.xdpguard_passed_pps||0;
+  const tot=m.xdpguard_dropped_packets||0;
+  const iface=data.iface||'?';
+  const upTxt=(data.uptime||'').replace(/^[A-Za-z]+ /,'');
+  const st=n.online?(data.state==='active'?'active':'boot'):'offline';
+  const dotCls=n.online?(data.state==='active'?'ok':'ok'):(n.last_seen?'down':'wait');
+  const h=srvHist[id];
+  if(n.online){
+    const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
+    h.t.push(now);h.d.push(dpp);h.p.push(pps);
+    if(h.t.length>60){h.t.shift();h.d.shift();h.p.shift();}
+  }
+  let html='<div class="srvcard"><div class="sctop"><b>'+esc(n.name)+'</b><span class="dot '+dotCls+'"></span></div>';
+  html+='<div class="smeta"><b style="color:var(--txt)">'+esc(n.ip||'linking...')+'</b> · '+esc(iface)+
+        (upTxt?' · '+esc(upTxt):'')+'</div>';
+  if(!n.online&&!n.last_seen)html+='<div class="errnote">Waiting for this VPS to install &amp; link...</div>';
+  else if(!n.online)html+='<div class="errnote">Offline — no report for a while</div>';
+  else{
+    html+='<div class="srvrow"><span>State</span><b class="clg">'+esc(data.state||'?')+'</b></div>';
+    html+='<div class="srvrow"><span>Blocked IPs</span><b '+(blk?'cld"':'')+'>'+fnum(blk)+'</b></div>';
+    html+='<div class="srvrow"><span>Dropped</span><b '+(dpp?'cld"':'')+'>'+fnum(dpp,2)+' pkt/s</b></div>';
+    html+='<div class="srvrow"><span>Passed</span><b class="clg">'+fnum(pps,2)+' pkt/s</b></div>';
+    html+='<div class="srvrow"><span>Total dropped</span><b>'+fnum(tot)+'</b></div>';
+    html+='<div class="spark"><canvas id="sc_'+n.token+'"></canvas></div>';
+  }
+  html+='<button class="rm" onclick="delNode(\''+n.token+'\')">&times;</button></div>';
+  return html;
 }
 async function tickNet(){
   try{
     const d=await(await fetch('/netdata',{cache:'no-store'})).json();
     const g=document.getElementById('srvgrid');
-    let html='';
-    for(const s of d.servers||[]){
-      const m=s.data?.m||{};
-      const up=s.ok;
-      const blk=m.xdpguard_active_blocked_ips||0;
-      const dpp=m.xdpguard_dropped_pps||0;
-      const pps=m.xdpguard_passed_pps||0;
-      const tot=m.xdpguard_dropped_packets||0;
-      const iface=s.data?.iface||'?';
-      const upTxt=s.data?.uptime?.replace(/^[A-Za-z]+ /,'')||'';
-      if(!srvHist[s.id])srvHist[s.id]={t:[],d:[],p:[]};
-      const h=srvHist[s.id];
-      const now=new Date().toLocaleTimeString('en-GB',{hour12:false});
-      h.t.push(now);h.d.push(dpp);h.p.push(pps);
-      if(h.t.length>60){h.t.shift();h.d.shift();h.p.shift();}
-      html+='<div class="srvcard"><div class="sctop"><b>'+esc(s.name)+'</b><span class="dot '+(up?'ok':'down')+'"></span></div>';
-      html+='<div class="smeta"><b style="color:var(--txt)">'+esc(iface)+'</b> · '+esc(upTxt)+'</div>';
-      html+='<div class="srvrow"><span>Blocked IPs</span><b>'+(blk?'cld"':'')+'>'+fnum(blk)+'</b></div>';
-      html+='<div class="srvrow"><span>Dropped</span><b '+(dpp?'cld"':'')+'>'+fnum(dpp,2)+' pkt/s</b></div>';
-      html+='<div class="srvrow"><span>Passed</span><b class="clg">'+fnum(pps,2)+' pkt/s</b></div>';
-      html+='<div class="srvrow"><span>Total dropped</span><b>'+fnum(tot)+'</b></div>';
-      html+='<div class="spark"><canvas id="sc_'+s.id+'"></canvas></div>';
-      html+='<button class="rm" onclick="delServer(\''+esc(s.id)+'\')">&times;</button></div>';
-    }
-    if(!d.servers||!d.servers.length)html='<div class="errnote">No servers added yet.</div>';
-    g.innerHTML=html;
-    for(const s of d.servers||[])drawSrvSpark(s.id);
+    if(!d.nodes||!d.nodes.length)return;
+    g.innerHTML=d.nodes.map(nodeCard).join('');
+    for(const n of d.nodes||[])drawSrvSpark(n.token);
   }catch(e){}
 }
 function drawSrvSpark(id){
   const cv=document.getElementById('sc_'+id);if(!cv)return;
-  const h=srvHist[id]||{};if(!h.t||!h.t.length)return;
+  const h=srvHist['tok_'+id]||{};if(!h.t||!h.t.length)return;
   spark(cv,h.d,'#ff4d4d');
 }
 function esc(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]||c));}
@@ -595,28 +726,6 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
             return
-        if self.path.startswith("/servers"):
-            if "?" not in self.path:
-                body = json.dumps(load_servers()).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
-            parsed = urllib.parse.urlparse(self.path)
-            qs = urllib.parse.parse_qs(parsed.query)
-            sid = (qs.get("id") or [None])[0]
-            if sid:
-                srv = load_servers()
-                srv = [s for s in srv if s.get("id") != sid]
-                save_servers(srv)
-                self.send_response(204)
-                self.end_headers()
-                return
-            self.send_response(400)
-            self.end_headers()
-            return
         if self.path.startswith("/stats"):
             body = json.dumps(status()).encode()
             self.send_response(200)
@@ -638,6 +747,20 @@ class H(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(b"chart library missing")
             return
+        if self.path.startswith("/install.sh"):
+            src = INSTALL_FILE
+            if src and os.path.isfile(src):
+                data = open(src, "rb").read()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/x-sh")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+                return
+            self.send_response(404)
+            self.end_headers()
+            self.wfile.write(b"installer not configured (set MS_INSTALL_FILE)")
+            return
         body = PAGE.encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -645,32 +768,58 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_POST(self):
-        if not self.path.startswith("/servers"):
-            self.send_response(404)
-            self.end_headers()
-            return
-        length = int(self.headers.get("Content-Length", 0))
-        raw = self.rfile.read(length) if length else b""
-        form = urllib.parse.parse_qs(raw.decode())
-        name = (form.get("name") or [""])[0].strip()
-        url = (form.get("url") or [""])[0].strip()
-        if not url:
-            self.send_response(400)
-            self.end_headers()
-            return
-        if not url.startswith("http://") and not url.startswith("https://"):
-            url = "http://" + url
-        srv = load_servers()
-        srv_id = uuid.uuid4().hex[:8]
-        srv.append({"id": srv_id, "name": name or url, "url": url})
-        save_servers(srv)
-        self.send_response(201)
-        self.send_header("Content-Type", "application/json")
-        body = json.dumps({"id": srv_id}).encode()
-        self.send_header("Content-Length", str(len(body)))
+    def do_DELETE(self):
+        if self.path.startswith("/nodedelete"):
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            token = (qs.get("token") or [""])[0]
+            nodes = [n for n in load_nodes() if n.get("token") != token]
+            save_nodes(nodes)
+        self.send_response(204)
         self.end_headers()
-        self.wfile.write(body)
+
+    def do_POST(self):
+        if self.path.startswith("/joinadd"):
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b""
+            form = urllib.parse.parse_qs(raw.decode())
+            name = (form.get("name") or [""])[0].strip()
+            token = new_token()
+            add_token_record(token)
+            host = self.headers.get("Host", "panel")
+            src = "http://%s" % host
+            base = src
+            if INSTALL_FILE and os.path.isfile(INSTALL_FILE):
+                installer = "%s/install.sh" % src
+            else:
+                installer = "http://<panel-ip>/qwen-filter-install.sh"
+            cmd = "curl -fsSL %s | sudo bash -s -- --join --panel %s --token %s" % (
+                installer, base, token)
+            extra = "Installing on the node VPS will install full DDoS protection and link it here automatically."
+            body = json.dumps({"cmd": cmd, "extra": extra, "pendingToken": token}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/report"):
+            length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(length) if length else b""
+            try:
+                payload = json.loads(raw.decode()) if raw else {}
+            except Exception:
+                payload = {}
+            client_ip = self.client_address[0] if self.client_address else ""
+            n = report_from_node(payload, client_ip)
+            body = json.dumps({"ok": bool(n), "registered": bool(n)}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(404)
+        self.end_headers()
 
 
 def main():
