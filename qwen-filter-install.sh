@@ -189,8 +189,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=$INSTALL_DIR/$BIN_NAME $IFACE --config $CONF_DIR/config.yaml
-Restart=on-failure
+Restart=always
 RestartSec=5
+StartLimitIntervalSec=0
 LimitNOFILE=1048576
 
 [Install]
@@ -208,8 +209,9 @@ After=$BIN_NAME.service
 Type=simple
 Environment=METRICS_URL=http://127.0.0.1:1999/metrics
 ExecStart=/usr/bin/python3 /usr/local/lib/matrix-shield/matrix-shield-dashboard.py
-Restart=on-failure
+Restart=always
 RestartSec=5
+StartLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
@@ -233,13 +235,52 @@ if [ -n "$PREFIX" ]; then
   exit 0
 fi
 
-systemctl daemon-reload
-systemctl enable "$BIN_NAME.service" >/dev/null 2>&1 || true
-systemctl enable matrix-shield-dashboard.service >/dev/null 2>&1 || true
-systemctl restart "$BIN_NAME.service" || true
-systemctl restart matrix-shield-dashboard.service || true
-sleep 2
-systemctl --no-pager --full status "$BIN_NAME.service" || true
+if [ "$(ps -p 1 -o comm=)" != "systemd" ] || ! systemctl is-system-running >/dev/null 2>&1; then
+  warn "systemd not available (PID1=$(ps -p 1 -o comm= 2>/dev/null || echo '?') ) — using persistent background start (terminal-independent)"
+  LAUNCHER="$ROOT/usr/local/bin/qwen-filter-ensure"
+  cat > "$LAUNCHER" <<EOF
+#!/usr/bin/env bash
+# MATRIX SHIELD auto-start helper (non-systemd fallback: survives terminal close)
+[ -x "$INSTALL_DIR/$BIN_NAME" ] || exit 0
+if ! pgrep -x "$BIN_NAME" >/dev/null; then
+  setsid nohup "$INSTALL_DIR/$BIN_NAME" "$IFACE" --config "$CONF_DIR/config.yaml" \
+    >> /var/log/qwen-filter-console.log 2>&1 &
+  sleep 1
+fi
+if ! pgrep -f matrix-shield-dashboard >/dev/null; then
+  setsid nohup /usr/bin/python3 /usr/local/lib/matrix-shield/matrix-shield-dashboard.py \
+    >> /var/log/qwen-filter-dashboard.log 2>&1 &
+fi
+EOF
+  chmod 0755 "$LAUNCHER"
+  "$LAUNCHER"
+  for rc in /etc/rc.local /etc/rc.d/rc.local; do
+    if [ -f "$rc" ]; then
+      grep -q qwen-filter-ensure "$rc" || printf '\n# MATRIX SHIELD auto-start\n%s\n' "$LAUNCHER" >> "$rc"
+      chmod +x "$rc"
+    fi
+  done
+  sleep 2
+  if pgrep -x "$BIN_NAME" >/dev/null; then
+    log "SHIELD ACTIVE (persistent background — runs after you close the terminal)"
+  else
+    warn "shield NOT running — check /var/log/qwen-filter-console.log"
+  fi
+else
+  systemctl daemon-reload
+  systemctl enable "$BIN_NAME.service" >/dev/null 2>&1 || true
+  systemctl enable matrix-shield-dashboard.service >/dev/null 2>&1 || true
+  systemctl restart "$BIN_NAME.service" || true
+  systemctl restart matrix-shield-dashboard.service || true
+  sleep 2
+  if systemctl is-active --quiet "$BIN_NAME.service"; then
+    log "SHIELD ACTIVE (systemd: $BIN_NAME.service)"
+  else
+    warn "shield NOT active — service failed to start"
+    warn "diagnose with: journalctl -u $BIN_NAME.service -n 30"
+    systemctl --no-pager --full status "$BIN_NAME.service" || true
+  fi
+fi
 
 if command -v ufw >/dev/null 2>&1 && ufw status >/dev/null 2>&1; then
   if ufw allow 9090/tcp >/dev/null 2>&1; then
